@@ -55,7 +55,7 @@ class MCTS:
         self.children = dict()  # children of each node
         self.exploration_weight = exploration_weight
 
-    def choose(self, node):
+    def choose(self, node: Node):
         "Choose the best successor of node. (Choose a move in the game)"
         if node.is_terminal():
             raise RuntimeError(f"choose called on terminal node {node}")
@@ -70,7 +70,7 @@ class MCTS:
 
         return max(self.children[node], key=score)
 
-    def do_rollout(self, node):
+    def do_rollout(self, node: Node):
         "Make the tree one layer better. (Train for one iteration.)"
         path = self._select(node)
         leaf = path[-1]
@@ -78,7 +78,7 @@ class MCTS:
         reward = self._simulate(leaf)
         self._backpropagate(path, reward)
 
-    def _select(self, node):
+    def _select(self, node: Node):
         "Find an unexplored descendent of `node`"
         path = []
         while True:
@@ -93,13 +93,13 @@ class MCTS:
                 return path
             node = self._uct_select(node)  # descend a layer deeper
 
-    def _expand(self, node):
+    def _expand(self, node: Node):
         "Update the `children` dict with the children of `node`"
         if node in self.children:
             return  # already expanded
         self.children[node] = node.find_children()
 
-    def _simulate(self, node):
+    def _simulate(self, node: Node):
         "Returns the reward for a random simulation (to completion) of `node`"
         invert_reward = True
         while True:
@@ -116,7 +116,7 @@ class MCTS:
             self.Q[node] += reward
             reward = 1 - reward  # 1 for me is 0 for my enemy, and vice versa
 
-    def _uct_select(self, node):
+    def _uct_select(self, node: Node):
         "Select a child of node, balancing exploration & exploitation"
 
         # All children of node should already be expanded:
