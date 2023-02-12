@@ -32,10 +32,10 @@ class TreeNode(object):
     def __init__(self, parent, prior_p):
         self._parent = parent
         self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0
-        self._Q = 0
-        self._u = 0
-        self._P = prior_p
+        self._n_visits = 0  # 访问次数
+        self._Q = 0  # 价值
+        self._u = 0  # score u
+        self._P = prior_p  # 先验概率
 
     def expand(self, action_priors):
         """Expand tree by creating new children.
