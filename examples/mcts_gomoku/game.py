@@ -13,8 +13,7 @@ class TreeNode(object):
 
     def score(self, c_puct):
 
-        self.U = c_puct * self.prior * self.Q + np.sqrt(
-            (self.parent.N) / (1 + self.N))
+        self.U = (c_puct * self.prior * np.sqrt(self.parent.N) / (1 + self.N))
 
         return self.Q + self.U
 
