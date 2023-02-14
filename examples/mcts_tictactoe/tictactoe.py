@@ -1,5 +1,4 @@
-"""
-An example implementation of the abstract Node class for use in MCTS
+"""An example implementation of the abstract Node class for use in MCTS.
 
 If you run this file then you can play against the computer.
 
@@ -21,9 +20,10 @@ corrresponds to this tuple:
 
 from collections import namedtuple
 from random import choice
+
 from mcts import MCTS, Node
 
-_TTTB = namedtuple("TicTacToeBoard", "tup turn winner terminal")
+_TTTB = namedtuple('TicTacToeBoard', 'tup turn winner terminal')
 
 
 # Inheriting from a namedtuple is convenient because it makes the class
@@ -46,16 +46,16 @@ class TicTacToeBoard(_TTTB, Node):
 
     def reward(board):
         if not board.terminal:
-            raise RuntimeError(f"reward called on nonterminal board {board}")
+            raise RuntimeError(f'reward called on nonterminal board {board}')
         if board.winner is board.turn:
             # It's your turn and you've already won. Should be impossible.
-            raise RuntimeError(f"reward called on unreachable board {board}")
+            raise RuntimeError(f'reward called on unreachable board {board}')
         if board.turn is (not board.winner):
             return 0  # Your opponent has just won. Bad.
         if board.winner is None:
             return 0.5  # Board is a tie
         # The winner is neither True, False, nor None
-        raise RuntimeError(f"board has unknown winner type {board.winner}")
+        raise RuntimeError(f'board has unknown winner type {board.winner}')
 
     def is_terminal(board):
         return board.terminal
@@ -68,13 +68,13 @@ class TicTacToeBoard(_TTTB, Node):
         return TicTacToeBoard(tup, turn, winner, is_terminal)
 
     def to_pretty_string(board):
-        to_char = lambda v: ("X" if v is True else ("O"
-                                                    if v is False else " "))
+        to_char = lambda v: ('X' if v is True else ('O'
+                                                    if v is False else ' '))
         rows = [[to_char(board.tup[3 * row + col]) for col in range(3)]
                 for row in range(3)]
-        return ("\n  1 2 3\n" + "\n".join(
-            str(i + 1) + " " + " ".join(row)
-            for i, row in enumerate(rows)) + "\n")
+        return ('\n  1 2 3\n' + '\n'.join(
+            str(i + 1) + ' ' + ' '.join(row)
+            for i, row in enumerate(rows)) + '\n')
 
 
 def _winning_combos():
@@ -87,7 +87,7 @@ def _winning_combos():
 
 
 def _find_winner(tup):
-    "Returns None if no winner, True if X wins, False if O wins"
+    """Returns None if no winner, True if X wins, False if O wins."""
     for i1, i2, i3 in _winning_combos():
         v1, v2, v3 = tup[i1], tup[i2], tup[i3]
         if False is v1 is v2 is v3:
@@ -109,11 +109,11 @@ def play_game():
     board = new_tic_tac_toe_board()
     print(board.to_pretty_string())
     while True:
-        row_col = input("enter row,col: ")
-        row, col = map(int, row_col.split(","))
+        row_col = input('enter row,col: ')
+        row, col = map(int, row_col.split(','))
         index = 3 * (row - 1) + (col - 1)
         if board.tup[index] is not None:
-            raise RuntimeError("Invalid move")
+            raise RuntimeError('Invalid move')
         board = board.make_move(index)
         print(board.to_pretty_string())
         if board.terminal:
@@ -128,5 +128,5 @@ def play_game():
             break
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     play_game()
