@@ -51,11 +51,7 @@ class GomokuGame(pyspiel.Game):
             params = dict()
 
         params['observation_shape'] = self.observation_shape
-        if ((iig_obs_type is None) or
-            (iig_obs_type.public_info and not iig_obs_type.perfect_recall)):
-            return BoardObserver(params)
-        else:
-            return IIGObserverForPublicInfoGame(iig_obs_type, params)
+        return BoardObserver(params)
 
 
 class GomokuGameState(pyspiel.State):
@@ -91,7 +87,7 @@ class GomokuGameState(pyspiel.State):
         self.board[_coord(action)] = 'x' if self._cur_player == 0 else 'o'
         self.states[action] = self._cur_player
         self.last_move = action
-        self.observation = self._get_observation()  # Store this for later
+        self.observation = self.observation_tensor()  # Store this for later
 
         # if has a winner
         if self.has_a_winner():
@@ -102,7 +98,7 @@ class GomokuGameState(pyspiel.State):
         else:
             self._cur_player = 1 - self._cur_player
 
-    def _get_observation(self):
+    def observation_tensor(self):
         """return the board state from the perspective of the current player.
 
         state shape: 4*width*height
@@ -121,7 +117,8 @@ class GomokuGameState(pyspiel.State):
 
         if len(self.states) % 2 == 0:
             square_state[3][:, :] = 1.0  # indicate the colour to play
-        return square_state
+
+        return np.array(square_state)
 
     def has_a_winner(self):
         width = self.num_rows
@@ -207,7 +204,7 @@ class BoardObserver:
         # convenient than with the 1-D tensor. Both are views onto the same memory.
         self.tensor.fill(0)
         if 'observation' in self.dict:
-            self.dict['observation'][:] = state.observation
+            self.dict['observation'] = state.observation
 
     def string_from(self, state, player):
         """Observation of `state` from the PoV of `player`, as a string."""
