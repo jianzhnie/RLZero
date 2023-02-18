@@ -3,8 +3,9 @@ import pyspiel
 from open_spiel.python.observation import IIGObserverForPublicInfoGame
 
 _NUM_PLAYERS = 2
-_NUM_ROWS = 3
-_NUM_COLS = 3
+_NUM_ROWS = 8
+_NUM_COLS = 8
+_N_IN_ROW = 5
 _NUM_CELLS = _NUM_ROWS * _NUM_COLS
 
 _GAME_TYPE = pyspiel.GameType(
@@ -35,6 +36,10 @@ class GomokuGame(pyspiel.Game):
     """A Python version of the Tic-Tac-Toe game."""
     def __init__(self, params=None):
         super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
+        self.observation_shape = (_NUM_PLAYERS + 2, _NUM_ROWS, _NUM_COLS)
+
+    def observation_tensor_shape(self):
+        return self.observation_shape
 
     def new_initial_state(self):
         """Returns a state corresponding to the start of a game."""
@@ -42,6 +47,10 @@ class GomokuGame(pyspiel.Game):
 
     def make_py_observer(self, iig_obs_type=None, params=None):
         """Returns an object used for observing game state."""
+        if params is None:
+            params = dict()
+
+        params['observation_shape'] = self.observation_shape
         if ((iig_obs_type is None) or
             (iig_obs_type.public_info and not iig_obs_type.perfect_recall)):
             return BoardObserver(params)
@@ -59,6 +68,7 @@ class GomokuGameState(pyspiel.State):
         self._is_terminal = False
         self.num_rows = _NUM_ROWS
         self.num_cols = _NUM_COLS
+        self.n_in_row = _N_IN_ROW
         self.states = {}
         self.last_move = -1
         self.board = np.full((self.num_rows, self.num_cols), '.')
@@ -79,16 +89,18 @@ class GomokuGameState(pyspiel.State):
     def _apply_action(self, action):
         """Applies the specified action to the state."""
         self.board[_coord(action)] = 'x' if self._cur_player == 0 else 'o'
-        if _line_exists(self.board):
+        self.states[action] = self._cur_player
+        self.last_move = action
+        self.observation = self._get_observation()  # Store this for later
+
+        # if has a winner
+        if self.has_a_winner():
             self._is_terminal = True
             self._player0_score = 1.0 if self._cur_player == 0 else -1.0
         elif all(self.board.ravel() != '.'):
             self._is_terminal = True
         else:
             self._cur_player = 1 - self._cur_player
-        self.states[action] = self._cur_player
-        self.last_move = action
-        self.observation = self._get_observation()  # Store this for later
 
     def _get_observation(self):
         """return the board state from the perspective of the current player.
@@ -109,8 +121,51 @@ class GomokuGameState(pyspiel.State):
 
         if len(self.states) % 2 == 0:
             square_state[3][:, :] = 1.0  # indicate the colour to play
-        return square_state[:, ::-1, :]
+        return square_state
 
+    def has_a_winner(self):
+        width = self.num_rows
+        height = self.num_cols
+        states = self.states
+        n = self.n_in_row
+
+        moved = list(
+            set(range(width * height)) -
+            set(self._legal_actions(player=self._cur_player)))
+        if len(moved) < self.n_in_row * 2 - 1:
+            return False
+
+        for m in moved:
+            h = m // width
+            w = m % width
+            if (w in range(width - n + 1)
+                    and len(set(states.get(i, -1)
+                                for i in range(m, m + n))) == 1):
+                return True
+
+            if (h in range(height - n + 1) and len(
+                    set(
+                        states.get(i, -1)
+                        for i in range(m, m + n * width, width))) == 1):
+                return True
+
+            if (w in range(width - n + 1) and h in range(height - n + 1)
+                    and len(
+                        set(
+                            states.get(i, -1)
+                            for i in range(m, m + n *
+                                           (width + 1), width + 1))) == 1):
+                return True
+
+            if (w in range(n - 1, width) and h in range(height - n + 1)
+                    and len(
+                        set(
+                            states.get(i, -1)
+                            for i in range(m, m + n *
+                                           (width - 1), width - 1))) == 1):
+                return True
+
+        return False
 
     def _action_to_string(self, player, action):
         """Action -> string."""
@@ -138,13 +193,10 @@ class BoardObserver:
     observation.py)."""
     def __init__(self, params):
         """Initializes an empty observation tensor."""
-        if params:
-            raise ValueError(
-                f'Observation parameters not supported; passed {params}')
         # The observation should contain a 1-D tensor in `self.tensor` and a
         # dictionary of views onto the tensor, which may be of any shape.
         # Here the observation is indexed `(cell state, row, column)`.
-        shape = (1 + _NUM_PLAYERS + 1, _NUM_ROWS, _NUM_COLS)
+        shape = params['observation_shape']
         self.tensor = np.zeros(np.prod(shape), np.float32)
         self.dict = {'observation': np.reshape(self.tensor, shape)}
 
