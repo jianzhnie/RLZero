@@ -71,7 +71,8 @@ class AlphaZeroAgent(object):
 
     def predict(self, observation, legals_mask):
         self.policy_value_net.eval()  # eval mode
-
+        observation = torch.tensor(observation, device=self.device)
+        legals_mask = torch.tensor(legals_mask, device=self.device)
         with torch.no_grad():
             policy_logits, value_out = self.policy_value_net(observation)
 
