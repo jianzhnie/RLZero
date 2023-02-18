@@ -3,10 +3,10 @@ import torch
 
 class Config:
     def __init__(self) -> None:
-        self.game = 'connect_four'
+        self.game = 'Gamoku'
         self.num_rows = 8
         self.num_cols = 8
-        self.path = './'
+        self.path = './work_dirs'
 
         self.learning_rate = 0.001
         self.weight_decay = 0.0001
@@ -16,7 +16,7 @@ class Config:
         self.max_steps = 0
         self.checkpoint_freq = 100
 
-        self.actors = 2
+        self.actors = 1
         self.evaluators = 1
         self.evaluation_window = 100
         self.eval_levels = 7
