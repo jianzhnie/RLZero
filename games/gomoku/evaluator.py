@@ -16,6 +16,7 @@
 import numpy as np
 import pyspiel
 from open_spiel.python.algorithms import mcts
+import torch
 
 
 class AlphaZeroEvaluator(mcts.Evaluator):
