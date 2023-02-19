@@ -103,7 +103,7 @@ class GomokuGameState(pyspiel.State):
 
         state shape: 4*width*height
         """
-        square_state = np.zeros((4, self.num_rows, self.num_cols))
+        square_state = np.zeros((4, self.num_rows, self.num_cols), np.float32)
         if self.states:
             moves, players = np.array(list(zip(*self.states.items())))
             move_curr = moves[players == self._cur_player]
