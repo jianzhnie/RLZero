@@ -18,7 +18,7 @@ class Board(object):
         self.states = {}
         # need how many pieces in a row to win
         self.n_in_row = n_in_row
-        self.players = [1, 2]  # player1 and player2
+        self.players = [0, 1]  # player1 and player2
 
     def init_board(self, start_player=0):
         if self.width < self.n_in_row or self.height < self.n_in_row:
@@ -33,7 +33,10 @@ class Board(object):
     def move_to_location(self, move):
         """3*3 board's moves like:
 
-        6 7 8 3 4 5 0 1 2 and move 5's location is (1,2)
+        6 7 8 
+        3 4 5 
+        0 1 2 
+        and move 5's location is (1,2)
         """
         h = move // self.width
         w = move % self.width
@@ -74,8 +77,7 @@ class Board(object):
     def do_move(self, move):
         self.states[move] = self.current_player
         self.availables.remove(move)
-        self.current_player = (self.players[0] if self.current_player
-                               == self.players[1] else self.players[1])
+        self.current_player = 1- self.current_player
         self.last_move = move
 
     def has_a_winner(self):
