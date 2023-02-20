@@ -33,10 +33,7 @@ class Board(object):
     def move_to_location(self, move):
         """3*3 board's moves like:
 
-        6 7 8 
-        3 4 5 
-        0 1 2 
-        and move 5's location is (1,2)
+        6 7 8 3 4 5 0 1 2 and move 5's location is (1,2)
         """
         h = move // self.width
         w = move % self.width
@@ -77,7 +74,7 @@ class Board(object):
     def do_move(self, move):
         self.states[move] = self.current_player
         self.availables.remove(move)
-        self.current_player = 1- self.current_player
+        self.current_player = 1 - self.current_player
         self.last_move = move
 
     def has_a_winner(self):
