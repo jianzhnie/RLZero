@@ -1,15 +1,15 @@
 from __future__ import print_function
 
 import random
+import sys
 from collections import defaultdict, deque
 
 import numpy as np
-import torch
 from alphazero_agent import AlphaZeroAgent
 from config import AlphaZeroConfig
-from game import Board, Game
-from model import PolicyValueNet
+from game import GomokuGame
 
+sys.path.append('../../')
 from muzero.mcts.mcts_alphazero import MCTSPlayer
 from muzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
 
@@ -35,23 +35,28 @@ def get_equi_data(play_data, board_width, board_height):
     return extend_data
 
 
-def collect_configplay_data(game: Game,
+def collect_configplay_data(game: GomokuGame,
                             data_buffer,
                             mcts_player,
-                            config,
+                            config: AlphaZeroConfig,
                             n_games=1):
     """collect config-play data for training."""
     for i in range(n_games):
-        winner, play_data = game.start_config_play(mcts_player,
-                                                   temp=config.temperature)
+        winner, play_data = game.start_self_play(mcts_player,
+                                                 temp=config.temperature)
         play_data = list(play_data)[:]
+        data_buffer.extend(play_data)
         config.episode_len = len(play_data)
         # augment the data
-        play_data = get_equi_data(play_data)
+        play_data = get_equi_data(play_data, config.board_width,
+                                  config.board_height)
         data_buffer.extend(play_data)
 
+    return data_buffer
 
-def policy_update(agent: AlphaZeroAgent, replay_buffer, config):
+
+def policy_update(agent: AlphaZeroAgent, replay_buffer,
+                  config: AlphaZeroConfig):
     """update the policy-value net."""
 
     mini_batch = random.sample(replay_buffer, config.batch_size)
@@ -60,8 +65,8 @@ def policy_update(agent: AlphaZeroAgent, replay_buffer, config):
     winner_batch = [data[2] for data in mini_batch]
     old_probs, old_v = agent.predict(state_batch)
     for i in range(config.epochs):
-        loss, entropy = agent.learn(state_batch, mcts_probs_batch,
-                                    winner_batch)
+        loss, policy_loss, value_loss, entropy = agent.learn(
+            state_batch, mcts_probs_batch, winner_batch)
         new_probs, new_v = agent.predict(state_batch)
         kl = np.mean(
             np.sum(old_probs *
@@ -90,7 +95,8 @@ def policy_update(agent: AlphaZeroAgent, replay_buffer, config):
     return loss, entropy
 
 
-def policy_evaluate(agent: AlphaZeroAgent, game, config, n_games=10):
+def policy_evaluate(agent: AlphaZeroAgent, game: GomokuGame,
+                    config: AlphaZeroConfig):
     """
     Evaluate the trained policy by playing against the pure MCTS player
     Note: this is only for monitoring the progress of training
@@ -101,49 +107,53 @@ def policy_evaluate(agent: AlphaZeroAgent, game, config, n_games=10):
     pure_mcts_player = MCTS_Pure(c_puct=5,
                                  n_playout=config.pure_mcts_playout_num)
     win_cnt = defaultdict(int)
-    for i in range(n_games):
+    for i in range(config.n_games):
         winner = game.start_play(current_mcts_player,
                                  pure_mcts_player,
                                  start_player=i % 2,
                                  is_shown=0)
         win_cnt[winner] += 1
-    win_ratio = 1.0 * (win_cnt[1] + 0.5 * win_cnt[-1]) / n_games
+    win_ratio = 1.0 * (win_cnt[1] + 0.5 * win_cnt[-1]) / config.n_games
     print('num_playouts:{}, win: {}, lose: {}, tie:{}'.format(
         config.pure_mcts_playout_num, win_cnt[1], win_cnt[2], win_cnt[-1]))
     return win_ratio
 
 
-def main(config):
-    device = torch.device(
-        'cuda') if torch.cuda.is_available() else torch.device('cpu')
+def main():
 
     config = AlphaZeroConfig()
-    board = Board(width=config.board_width,
-                  height=config.board_height,
-                  n_in_row=config.n_in_row)
-    game = Game(board)
-
+    gomokugame = GomokuGame(width=config.board_width,
+                            height=config.board_height,
+                            n_in_row=config.n_in_row)
     alphazero = AlphaZeroAgent(config.board_width,
                                config.board_height,
-                               learning_rate=config.learn_rate,
-                               device=device)
-    policy_value_net = PolicyValueNet(config.board_width, config.board_height)
+                               learning_rate=config.learning_rate,
+                               weight_decay=config.weight_decay,
+                               device=config.device)
     mcts_player = MCTSPlayer(alphazero.policy_value_fn,
                              c_puct=config.c_puct,
                              n_playout=config.n_playout,
-                             is_configplay=1)
+                             is_selfplay=1)
     data_buffer = deque(maxlen=config.buffer_size)
 
     for i in range(config.game_batch_num):
-        collect_configplay_data(config.play_batch_size)
+        data_buffer = collect_configplay_data(game=gomokugame,
+                                              data_buffer=data_buffer,
+                                              mcts_player=mcts_player,
+                                              config=config,
+                                              n_games=1)
         print('batch i:{}, episode_len:{}'.format(i + 1, config.episode_len))
-        if len(config.data_buffer) > config.batch_size:
-            loss, entropy = policy_update()
+        if len(data_buffer) > config.batch_size:
+            loss, entropy = policy_update(agent=alphazero,
+                                          replay_buffer=data_buffer,
+                                          config=config)
         # check the performance of the current model,
         # and save the model params
         if (i + 1) % config.check_freq == 0:
             print('current config-play batch: {}'.format(i + 1))
-            win_ratio = policy_evaluate()
+            win_ratio = policy_evaluate(agent=alphazero,
+                                        game=gomokugame,
+                                        config=config)
             alphazero.save(save_dir=config.work_dir)
             if win_ratio > config.best_win_ratio:
                 print('New best policy!!!!!!!!')
@@ -154,3 +164,7 @@ def main(config):
                         and config.pure_mcts_playout_num < 5000):
                     config.pure_mcts_playout_num += 1000
                     config.best_win_ratio = 0.0
+
+
+if __name__ == '__main__':
+    main()
