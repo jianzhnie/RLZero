@@ -134,7 +134,7 @@ class Board(object):
         return self.current_player
 
 
-class Game(object):
+class GomokuGame(object):
     """game server."""
     def __init__(self, width: int = 8, height: int = 8, n_in_row: int = 5):
         self.board = Board(width, height, n_in_row)
