@@ -1,8 +1,7 @@
 from __future__ import print_function
 
-import random
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict
 
 import numpy as np
 from alphazero_agent import AlphaZeroAgent
@@ -10,6 +9,8 @@ from config import AlphaZeroConfig
 from game import GomokuGame
 
 sys.path.append('../../')
+from replaybuffer import Buffer
+
 from muzero.mcts.mcts_alphazero import MCTSPlayer
 from muzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
 
@@ -35,31 +36,31 @@ def get_equi_data(play_data, board_width, board_height):
     return extend_data
 
 
-def collect_configplay_data(game: GomokuGame,
-                            data_buffer,
-                            mcts_player,
-                            config: AlphaZeroConfig,
-                            n_games=1):
+def collect_selfplay_data(game: GomokuGame,
+                          replay_buffer: Buffer,
+                          mcts_player: MCTSPlayer,
+                          config: AlphaZeroConfig,
+                          n_games=1):
     """collect config-play data for training."""
     for i in range(n_games):
-        winner, play_data = game.start_self_play(mcts_player,
-                                                 temp=config.temperature)
+        winner, play_data = game.start_self_play(
+            mcts_player, temperature=config.temperature)
         play_data = list(play_data)[:]
-        data_buffer.extend(play_data)
+        replay_buffer.extend(play_data)
         config.episode_len = len(play_data)
         # augment the data
         play_data = get_equi_data(play_data, config.board_width,
                                   config.board_height)
-        data_buffer.extend(play_data)
+        replay_buffer.extend(play_data)
 
-    return data_buffer
+    return replay_buffer
 
 
-def policy_update(agent: AlphaZeroAgent, replay_buffer,
+def policy_update(agent: AlphaZeroAgent, replay_buffer: Buffer,
                   config: AlphaZeroConfig):
     """update the policy-value net."""
 
-    mini_batch = random.sample(replay_buffer, config.batch_size)
+    mini_batch = replay_buffer.sample(config.batch_size)
     state_batch = [data[0] for data in mini_batch]
     mcts_probs_batch = [data[1] for data in mini_batch]
     winner_batch = [data[2] for data in mini_batch]
@@ -115,12 +116,11 @@ def policy_evaluate(agent: AlphaZeroAgent, game: GomokuGame,
         win_cnt[winner] += 1
     win_ratio = 1.0 * (win_cnt[1] + 0.5 * win_cnt[-1]) / config.n_games
     print('num_playouts:{}, win: {}, lose: {}, tie:{}'.format(
-        config.pure_mcts_playout_num, win_cnt[1], win_cnt[2], win_cnt[-1]))
+        config.n_games, win_cnt[1], win_cnt[2], win_cnt[-1]))
     return win_ratio
 
 
 def main():
-
     config = AlphaZeroConfig()
     gomokugame = GomokuGame(width=config.board_width,
                             height=config.board_height,
@@ -134,18 +134,23 @@ def main():
                              c_puct=config.c_puct,
                              n_playout=config.n_playout,
                              is_selfplay=1)
-    data_buffer = deque(maxlen=config.buffer_size)
+    rpm = Buffer(max_size=config.replay_buffer_size)
+    for i in range(config.episode_size):
+        winner, play_data = gomokugame.start_self_play(
+            mcts_player, temperature=config.temperature)
+        play_data = list(play_data)[:]
 
-    for i in range(config.game_batch_num):
-        data_buffer = collect_configplay_data(game=gomokugame,
-                                              data_buffer=data_buffer,
-                                              mcts_player=mcts_player,
-                                              config=config,
-                                              n_games=1)
-        print('batch i:{}, episode_len:{}'.format(i + 1, config.episode_len))
-        if len(data_buffer) > config.batch_size:
+        rpm.extend(play_data)
+        # augment the data
+        play_data_aug = get_equi_data(play_data, config.board_width,
+                                      config.board_height)
+        rpm.extend(play_data_aug)
+
+        print('Eposide i:{}, episode_len:{}'.format(i + 1, len(play_data)))
+
+        if len(rpm) > config.batch_size:
             loss, entropy = policy_update(agent=alphazero,
-                                          replay_buffer=data_buffer,
+                                          replay_buffer=rpm,
                                           config=config)
         # check the performance of the current model,
         # and save the model params
