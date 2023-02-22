@@ -15,7 +15,6 @@
 
 import numpy as np
 import pyspiel
-import torch
 from open_spiel.python.algorithms import mcts
 
 
