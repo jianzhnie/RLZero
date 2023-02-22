@@ -1,6 +1,5 @@
 import numpy as np
 import pyspiel
-from open_spiel.python.observation import IIGObserverForPublicInfoGame
 
 _NUM_PLAYERS = 2
 _NUM_ROWS = 8
