@@ -1,21 +1,20 @@
 import datetime
+import functools
 import itertools
-import json
 import os
 import sys
 import tempfile
 import time
 import traceback
-import functools
+
 import numpy as np
 from absl import app
 from agent import AlphaZeroAgent
 from config import Config
 from evaluator import AlphaZeroEvaluator
 from game_openspiel import GomokuGame
-from open_spiel.python.utils import data_logger, spawn, stats, file_logger
+from open_spiel.python.utils import data_logger, file_logger, spawn, stats
 from replaybuffer import Buffer, TrainInput, Trajectory, TrajectoryState
-import sys
 
 sys.path.append('../../')
 from muzero.mcts.mcts_deepmind import (MCTSBot, RandomRolloutEvaluator,
@@ -72,7 +71,7 @@ def play_game(logger, game_num, game, bots, temperature, temperature_drop):
     actions = []
     state = game.new_initial_state()
     random_state = np.random.RandomState()
-    logger.opt_print(' Starting game {} '.format(game_num).center(60, '-'))
+    logger.opt_print('Starting game {} '.format(game_num).center(60, '-'))
     logger.opt_print('Initial state:\n{}'.format(state))
     while not state.is_terminal():
         if state.is_chance_node():
@@ -110,6 +109,7 @@ def play_game(logger, game_num, game, bots, temperature, temperature_drop):
         game_num, ' '.join(map(str, trajectory.returns)), ' '.join(actions)))
     return trajectory
 
+
 @watcher
 def actor(*, config: Config, game, logger, queue):
     """An actor process runner that generates games and returns
@@ -128,6 +128,7 @@ def actor(*, config: Config, game, logger, queue):
         queue.put(
             play_game(logger, game_num, game, bots, config.temperature,
                       config.temperature_drop))
+
 
 @watcher
 def evaluator(*, game, config: Config, logger, queue):
@@ -170,6 +171,7 @@ def evaluator(*, game, config: Config, logger, queue):
             trajectory.returns[az_player], trajectory.returns[1 - az_player],
             len(results), np.mean(results.data)))
 
+
 @watcher
 def learner(*, game, config: Config, actors, evaluators, broadcast_fn, logger):
     """A learner that consumes the replay buffer and trains the network."""
@@ -178,8 +180,11 @@ def learner(*, game, config: Config, actors, evaluators, broadcast_fn, logger):
     replay_buffer = Buffer(config.replay_buffer_size)
     learn_rate = config.replay_buffer_size // config.replay_buffer_reuse
     logger.print('Initializing model')
-    alphazero_agent = AlphaZeroAgent(config.num_rows, config.num_cols,
-                                     config.learning_rate, config.weight_decay)
+    alphazero_agent = AlphaZeroAgent(config.num_rows,
+                                     config.num_cols,
+                                     config.learning_rate,
+                                     config.weight_decay,
+                                     device=config.device)
     data_log = data_logger.DataLoggerJsonLines(config.path, 'learner', True)
 
     stage_count = 7
@@ -256,8 +261,12 @@ def learner(*, game, config: Config, actors, evaluators, broadcast_fn, logger):
                 'policy_targets': batch.policy,
                 'value_targets': batch.value
             }
+            # feed_dict = {
+            #     key: torch.tensor(val, dtype=torch.double, device=device)
+            #     for (key, val) in feed_dict.items()
+            # }
             loss, policy_loss, value_loss, entroy = alphazero_agent.learn(
-                feed_dict)
+                **feed_dict)
             losses.append(loss)
         return losses
 
