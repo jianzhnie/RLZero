@@ -40,6 +40,7 @@ class PolicyValueNet(nn.Module):
         x_act = x_act.view(-1, 4 * self.board_width * self.board_height)
         # batch_size x action_size
         policy_logits = self.act_fc1(x_act)
+        policy_log_prob = F.log_softmax(policy_logits, dim=1)
 
         # state value layers
         x_val = F.relu(self.val_conv1(feat))
@@ -48,4 +49,4 @@ class PolicyValueNet(nn.Module):
         # batch_size x 1
         x_val = self.val_fc2(x_val)
         value_out = torch.tanh(x_val)
-        return policy_logits, value_out
+        return policy_log_prob, value_out
