@@ -36,26 +36,6 @@ def get_equi_data(play_data, board_width, board_height):
     return extend_data
 
 
-def collect_selfplay_data(game: GomokuGame,
-                          replay_buffer: Buffer,
-                          mcts_player: MCTSPlayer,
-                          config: AlphaZeroConfig,
-                          n_games=1):
-    """collect config-play data for training."""
-    for i in range(n_games):
-        winner, play_data = game.start_self_play(
-            mcts_player, temperature=config.temperature)
-        play_data = list(play_data)[:]
-        replay_buffer.extend(play_data)
-        config.episode_len = len(play_data)
-        # augment the data
-        play_data = get_equi_data(play_data, config.board_width,
-                                  config.board_height)
-        replay_buffer.extend(play_data)
-
-    return replay_buffer
-
-
 def policy_update(agent: AlphaZeroAgent, buffer: Buffer,
                   config: AlphaZeroConfig):
     """update the policy-value net."""
@@ -75,23 +55,16 @@ def policy_update(agent: AlphaZeroAgent, buffer: Buffer,
                    axis=1))
         if kl > config.kl_targ * 4:  # early stopping if D_KL diverges badly
             break
-    # adaptively adjust the learning rate
-    if kl > config.kl_targ * 2 and config.lr_multiplier > 0.1:
-        config.lr_multiplier /= 1.5
-    elif kl < config.kl_targ / 2 and config.lr_multiplier < 10:
-        config.lr_multiplier *= 1.5
-
     explained_var_old = (1 - np.var(np.array(winner_batch) - old_v.flatten()) /
                          np.var(np.array(winner_batch)))
     explained_var_new = (1 - np.var(np.array(winner_batch) - new_v.flatten()) /
                          np.var(np.array(winner_batch)))
     print(('kl:{:.5f},'
-           'lr_multiplier:{:.3f},'
            'loss:{},'
            'entropy:{},'
            'explained_var_old:{:.3f},'
-           'explained_var_new:{:.3f}').format(kl, config.lr_multiplier, loss,
-                                              entropy, explained_var_old,
+           'explained_var_new:{:.3f}').format(kl, loss, entropy,
+                                              explained_var_old,
                                               explained_var_new))
     return loss, entropy
 
@@ -115,8 +88,8 @@ def policy_evaluate(agent: AlphaZeroAgent, game: GomokuGame,
                                  is_shown=False)
         win_cnt[winner] += 1
     win_ratio = 1.0 * (win_cnt[1] + 0.5 * win_cnt[-1]) / config.n_games
-    print('num_playouts:{}, win: {}, lose: {}, tie:{}'.format(
-        config.n_games, win_cnt[1], win_cnt[2], win_cnt[-1]))
+    print('num_playouts:{}, win: {}, lose: {}, tie:{}, win_ratio:{}'.format(
+        config.n_games, win_cnt[1], win_cnt[2], win_cnt[-1], win_ratio))
     return win_ratio
 
 
