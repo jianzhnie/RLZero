@@ -56,11 +56,11 @@ def collect_selfplay_data(game: GomokuGame,
     return replay_buffer
 
 
-def policy_update(agent: AlphaZeroAgent, replay_buffer: Buffer,
+def policy_update(agent: AlphaZeroAgent, buffer: Buffer,
                   config: AlphaZeroConfig):
     """update the policy-value net."""
 
-    mini_batch = replay_buffer.sample(config.batch_size)
+    mini_batch = buffer.sample(config.batch_size)
     state_batch = [data[0] for data in mini_batch]
     mcts_probs_batch = [data[1] for data in mini_batch]
     winner_batch = [data[2] for data in mini_batch]
@@ -112,7 +112,7 @@ def policy_evaluate(agent: AlphaZeroAgent, game: GomokuGame,
         winner = game.start_play(current_mcts_player,
                                  pure_mcts_player,
                                  start_player=i % 2,
-                                 is_shown=0)
+                                 is_shown=False)
         win_cnt[winner] += 1
     win_ratio = 1.0 * (win_cnt[1] + 0.5 * win_cnt[-1]) / config.n_games
     print('num_playouts:{}, win: {}, lose: {}, tie:{}'.format(
@@ -133,7 +133,7 @@ def main():
     mcts_player = MCTSPlayer(alphazero.policy_value_fn,
                              c_puct=config.c_puct,
                              n_playout=config.n_playout,
-                             is_selfplay=1)
+                             is_selfplay=True)
     rpm = Buffer(max_size=config.replay_buffer_size)
     for i in range(config.episode_size):
         winner, play_data = gomokugame.start_self_play(
@@ -150,7 +150,7 @@ def main():
 
         if len(rpm) > config.batch_size:
             loss, entropy = policy_update(agent=alphazero,
-                                          replay_buffer=rpm,
+                                          buffer=rpm,
                                           config=config)
         # check the performance of the current model,
         # and save the model params
