@@ -51,27 +51,23 @@ class AlphaZeroConfig:
         self.work_dir = 'work_dirs/'
 
         # training params
+        self.episode_size = 10000  # total episode for the model to train
+        self.epochs = 5  # num of train_steps for each update
+        self.batch_size = 128  # mini-batch size for training
         self.learning_rate = 2e-3
-        self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temperature = 1.0  # the temperature param
         self.weight_decay = 1e-4  # L2 weights regularization
         self.momentum = 0.9  # Used only if optimizer is SGD
-        self.batch_size = 128  # mini-batch size for training
 
-        self.episode_size = 10000
+        self.c_puct = 5  # MCTS PUCT method param
         self.n_playout = 400  # num of simulations for each move
-        self.c_puct = 5
-        self.play_batch_size = 1
-        self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
-        self.check_freq = 10
+        self.check_freq = 10  # freq for test
         self.best_win_ratio = 0.0
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
         self.pure_mcts_playout_num = 1000
         self.n_games = 10
 
-        ### Replay Buffer
+        # Replay Buffer
         self.replay_buffer_size = 10000  # Number of self-play games to keep in the replay buffer
-        self.num_unroll_steps = 121  # Number of game moves to keep for every batch element
-        self.td_steps = 121  # Number of steps in the future to take into account for calculating the target value
