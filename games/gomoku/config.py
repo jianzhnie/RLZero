@@ -56,7 +56,7 @@ class AlphaZeroConfig:
         self.temperature = 1.0  # the temperature param
         self.weight_decay = 1e-4  # L2 weights regularization
         self.momentum = 0.9  # Used only if optimizer is SGD
-        self.batch_size = 64  # mini-batch size for training
+        self.batch_size = 128  # mini-batch size for training
 
         self.episode_size = 10000
         self.n_playout = 400  # num of simulations for each move
@@ -64,7 +64,7 @@ class AlphaZeroConfig:
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
-        self.check_freq = 5
+        self.check_freq = 10
         self.best_win_ratio = 0.0
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
