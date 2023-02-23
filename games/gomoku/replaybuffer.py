@@ -58,6 +58,7 @@ class Buffer(object):
         batch = list(batch)
         self.total_seen += len(batch)
         self.data.extend(batch)
+        self.data[:-self.max_size] = []
 
     def sample(self, count):
         return random.sample(self.data, count)
