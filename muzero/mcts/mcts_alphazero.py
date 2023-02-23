@@ -174,7 +174,7 @@ class MCTSPlayer(object):
                  policy_value_function,
                  c_puct=5,
                  n_playout=2000,
-                 is_selfplay=0):
+                 is_selfplay=False):
         self.mcts = MCTS(policy_value_function, c_puct, n_playout)
         self._is_selfplay = is_selfplay
 
@@ -184,7 +184,7 @@ class MCTSPlayer(object):
     def reset_player(self):
         self.mcts.update_with_move(-1)
 
-    def get_action(self, board, temperature=1e-3, return_prob=True):
+    def get_action(self, board, temperature=1e-3, return_prob=False):
         sensible_moves = board.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
         move_probs = np.zeros(board.width * board.height)
@@ -215,4 +215,4 @@ class MCTSPlayer(object):
             print('WARNING: the board is full')
 
     def __str__(self):
-        return 'MCTS {}'.format(self.player)
+        return 'MCTS-AlphaZero {}'.format(self.player)
