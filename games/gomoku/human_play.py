@@ -51,7 +51,10 @@ def run():
         human = Human()
 
         # set start_player=0 for human first
-        gomokugame.start_play(human, mcts_player, start_player=1, is_shown=1)
+        gomokugame.start_play(player1=human,
+                              player2=mcts_player,
+                              start_player=1,
+                              is_shown=True)
     except KeyboardInterrupt:
         print('\n\rquit')
 
