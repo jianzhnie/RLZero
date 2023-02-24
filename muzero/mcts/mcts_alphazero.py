@@ -110,7 +110,7 @@ class MCTS(object):
         State is modified in-place, so a copy must be provided.
         """
         node = self._root
-        while (1):
+        while True:
             if node.is_leaf():
                 break
             # Greedily select next move.
@@ -136,7 +136,7 @@ class MCTS(object):
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)
 
-    def get_move_probs(self, state, temp=1e-3):
+    def get_move_probs(self, state, temperature=1e-3):
         """Run all playouts sequentially and return the available actions and
         their corresponding probabilities.
 
@@ -151,7 +151,8 @@ class MCTS(object):
         act_visits = [(act, node._n_visits)
                       for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
-        act_probs = softmax(1.0 / temp * np.log(np.array(visits) + 1e-10))
+        act_probs = softmax(1.0 / temperature *
+                            np.log(np.array(visits) + 1e-10))
 
         return acts, act_probs
 
