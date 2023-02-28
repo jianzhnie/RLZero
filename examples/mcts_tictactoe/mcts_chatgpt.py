@@ -1,5 +1,6 @@
 import math
 import random
+from typing import Dict
 
 
 class Node:
@@ -13,19 +14,21 @@ class Node:
 
     def select_child(self):
         """Select a child node based on the UCB1 formula."""
+        if not self.children:
+            raise ValueError('Node has no children.')
         return max(self.children, key=lambda child: child.ucb_score())
 
-    def expand(self, action_priors):
+    def expand(self, action_priors: Dict[str, float]):
         """Expand the node by adding children for each possible action."""
         for action, prob in action_priors.items():
-            self.children.append(Node(self, action))
+            self.children.append(Node(self, action, prob))
 
-    def update(self, reward):
+    def update(self, reward: float):
         """Update the node's total reward and visit count."""
         self.visits += 1
         self.total_reward += reward
 
-    def ucb_score(self, exploration_value=1.4):
+    def ucb_score(self, exploration_value: float = 1.4):
         """Compute the node's UCB1 score."""
         if self.visits == 0:
             return float('inf')
@@ -35,17 +38,20 @@ class Node:
                 math.log(self.parent.visits) / self.visits)
         return exploitation_score + exploration_score * exploration_value
 
+    @property
     def fully_expanded(self):
         return len(self.children) == len(self.state.get_legal_moves())
 
+    @property
     def is_leaf(self):
         return len(self.children) == 0
 
+    @property
     def is_root(self):
         return self.parent is None
 
     def __repr__(self):
-        return f'MCTSNode(state={self.state}, visits={self.visits}, wins={self.total_reward})'
+        return 'MCTSNode'
 
 
 class MonteCarloTreeSearch:
