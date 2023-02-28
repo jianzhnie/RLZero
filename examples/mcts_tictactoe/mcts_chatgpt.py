@@ -216,4 +216,4 @@ def play_tictatoe(human_play=False):
 
 
 if __name__ == '__main__':
-    play_tictatoe(human_play=True)
+    play_tictatoe(human_play=False)
