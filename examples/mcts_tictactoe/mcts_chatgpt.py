@@ -4,6 +4,7 @@ from typing import Dict
 
 
 class Node:
+
     def __init__(self, parent=None, action=None, prior_p=None):
         self.parent = parent
         self.action = action
@@ -55,6 +56,7 @@ class Node:
 
 
 class MonteCarloTreeSearch:
+
     def __init__(self, state, exploration_weight=1.4):
         self.root = Node(state)
         self.exploration_weight = exploration_weight
@@ -125,6 +127,7 @@ class MonteCarloTreeSearch:
 
 
 class TicTacToe:
+
     def __init__(self):
         self.board = [' '] * 9
         self.winning_combinations = [

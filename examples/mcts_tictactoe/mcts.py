@@ -10,8 +10,10 @@ from collections import defaultdict
 class Node(ABC):
     """A representation of a single board state.
 
-    MCTS works by constructing a tree of these Nodes. Could be e.g. a chess or checkers board state.
+    MCTS works by constructing a tree of these Nodes. Could be e.g. a chess or
+    checkers board state.
     """
+
     @abstractmethod
     def find_children(self):
         """All possible successors of this board state."""
@@ -52,6 +54,7 @@ class MCTS:
 
     First rollout the tree then choose a move.
     """
+
     def __init__(self, exploration_weight=1):
         self.Q = defaultdict(int)  # total reward of each node
         self.N = defaultdict(int)  # total visit count for each node
