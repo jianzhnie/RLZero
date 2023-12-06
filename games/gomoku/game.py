@@ -9,11 +9,12 @@ import sys
 import numpy as np
 
 sys.path.append('../../')
-from muzero.mcts.mcts_alphazero import MCTSPlayer
+from rlzero.mcts_old.mcts_alphazero import MCTSPlayer
 
 
 class Board(object):
     """board for the game."""
+
     def __init__(self, width: int = 8, height: int = 8, n_in_row: int = 5):
         self.width = width
         self.height = height
@@ -141,6 +142,7 @@ class Board(object):
 
 class GomokuGame(object):
     """game server."""
+
     def __init__(self, width: int = 8, height: int = 8, n_in_row: int = 5):
         self.board = Board(width, height, n_in_row)
 

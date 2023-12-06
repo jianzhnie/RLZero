@@ -10,11 +10,12 @@ import sys
 from game import GomokuGame
 
 sys.path.append('../../')
-from muzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
+from rlzero.mcts_old.mcts_pure import MCTS_Pure
 
 
 class Human(object):
     """human player."""
+
     def __init__(self):
         self.player = None
 

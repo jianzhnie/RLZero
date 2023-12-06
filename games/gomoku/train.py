@@ -11,8 +11,8 @@ from game import GomokuGame
 sys.path.append('../../')
 from replaybuffer import Buffer
 
-from muzero.mcts.mcts_alphazero import MCTSPlayer
-from muzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
+from rlzero.mcts.mcts_alphazero import MCTSPlayer
+from rlzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
 
 
 def get_equi_data(play_data, board_width, board_height):

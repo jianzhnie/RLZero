@@ -9,6 +9,7 @@ from torch.autograd import Variable
 
 
 class AlphaZeroAgent(object):
+
     def __init__(self,
                  board_width: int,
                  board_height: int,

@@ -2,6 +2,7 @@ import torch
 
 
 class Config:
+
     def __init__(self) -> None:
         self.game = 'Gamoku'
         self.num_rows = 8
@@ -37,6 +38,7 @@ class Config:
 
 
 class AlphaZeroConfig:
+
     def __init__(self):
         self.seed = 0  # Seed for numpy, torch and the game
         # params of the board and the game

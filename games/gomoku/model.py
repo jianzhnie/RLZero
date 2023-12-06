@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 class PolicyValueNet(nn.Module):
     """policy-value network module."""
+
     def __init__(self, board_width: int, board_height: int):
         super(PolicyValueNet, self).__init__()
 

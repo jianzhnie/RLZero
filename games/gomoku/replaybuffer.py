@@ -8,6 +8,7 @@ class TrainInput(
         collections.namedtuple('TrainInput',
                                'observation legals_mask policy value')):
     """Inputs for training the Model."""
+
     @staticmethod
     def stack(train_inputs):
         observation, legals_mask, policy, value = zip(*train_inputs)
@@ -18,6 +19,7 @@ class TrainInput(
 
 class TrajectoryState(object):
     """A particular point along a trajectory."""
+
     def __init__(self, observation, current_player, legals_mask, action,
                  policy, value):
         self.observation = observation
@@ -30,6 +32,7 @@ class TrajectoryState(object):
 
 class Trajectory(object):
     """A sequence of observations, actions and policies, and the outcomes."""
+
     def __init__(self):
         self.states = []
         self.returns = None
@@ -40,6 +43,7 @@ class Trajectory(object):
 
 class Buffer(object):
     """A fixed size buffer that keeps the newest values."""
+
     def __init__(self, max_size):
         self.max_size = max_size
         self.data = []
