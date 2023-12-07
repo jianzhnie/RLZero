@@ -230,6 +230,17 @@ class GoEnv(AECEnv, EzPickle):
         self.board_history = np.zeros((self._N, self._N, 16), dtype=bool)
         self.current_player_index = 0
 
+        self._accumulate_rewards()
+        if self.render_mode == 'human':
+            self.render()
+
+        # observation, reward, done, info = env.last()
+        agent = self.agent_selection
+        current_index = self.agents.index(agent)
+        self.current_player_index = current_index
+        observation = self.observe(agent)
+        return observation
+
     def render(self):
         if self.render_mode is None:
             gymnasium.logger.warn(
@@ -338,7 +349,7 @@ class GoEnv(AECEnv, EzPickle):
             self.infos[name] = {'legal_moves': []}
 
     def legal_actions(self):
-        pass
+        return self.legal_moves()
 
     def legal_moves(self):
         if self._go.is_game_over():
