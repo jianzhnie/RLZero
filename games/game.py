@@ -1,15 +1,16 @@
 from __future__ import print_function
 
 import numpy as np
+from gobang.gobang_env import Board
 
 
 class Game(object):
     """game server."""
 
-    def __init__(self, board, **kwargs):
+    def __init__(self, board: Board):
         self.board = board
 
-    def graphic(self, board, player1, player2):
+    def graphic(self, board: Board, player1: int, player2: int):
         """Draw the board and show game info."""
         width = board.width
         height = board.height
@@ -18,7 +19,7 @@ class Game(object):
         print('Player', player2, 'with O'.rjust(3))
         print()
         for x in range(width):
-            print('{0:8}'.format(x), end='')
+            print('{0:4}'.format(x), end='')
         print('\r\n')
         for i in range(height - 1, -1, -1):
             print('{0:4d}'.format(i), end='')
@@ -33,7 +34,14 @@ class Game(object):
                     print('_'.center(8), end='')
             print('\r\n\r\n')
 
-    def start_play(self, player1, player2, start_player=0, is_shown=1):
+    def start_play(
+        self,
+        player1: int,
+        player2: int,
+        start_player: int = 0,
+        is_shown: bool = True,
+        print_prob: bool = True,
+    ) -> int:
         """start a game between two players."""
         if start_player not in (0, 1):
             raise Exception('start_player should be either 0 (player1 first) '
