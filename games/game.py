@@ -1,7 +1,8 @@
 from __future__ import print_function
 
 import numpy as np
-from gobang.gobang_env import Board
+
+from games.gomoku.gomoku_env import Board
 
 
 class Game(object):

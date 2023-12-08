@@ -4,9 +4,10 @@ import sys
 from collections import defaultdict
 
 import numpy as np
-from alphazero_agent import AlphaZeroAgent
 from config import AlphaZeroConfig
 from game import GomokuGame
+
+from RLZero.games.gomoku.alphazero_agent import AlphaZeroAgent
 
 sys.path.append('../../')
 from replaybuffer import Buffer

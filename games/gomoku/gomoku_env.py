@@ -24,7 +24,7 @@ class Board(object):
         # need how many pieces in a row to win
         self.n_in_row = n_in_row
         self.players = [1, 2]  # player1 and player2
-        self.feature_planes = 4
+        self.feature_planes = 3
         # how many binary feature planes we use,
         # in alphago zero is 17 and the input to the neural network is 19x19x17
         # here is a self.width x self.height x (self.feature_planes+1) binary feature planes,
