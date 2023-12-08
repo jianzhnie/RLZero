@@ -40,7 +40,7 @@ class TreeNode(object):
         return max(self._children.items(),
                    key=lambda act_node: act_node[1].get_value(c_puct))
 
-    def expand(self, action_priors: List[int, float], add_noise: bool):
+    def expand(self, action_priors: List[int, float], add_noise: bool = False):
         """Expand tree by creating new children.
 
         When train by self-play, add dirichlet noises in each node.
@@ -247,11 +247,18 @@ class MCTSPlayer(object):
         move_probs = np.zeros(game_env.width * game_env.height)
         if len(sensible_moves) > 0:
             acts, probs = self.mcts.get_move_probs(game_env, temperature)
-            move = np.random.choice(acts, p=probs)
-            # with the default temp=1e-3, it is almost equivalent
-            # to choosing the move with the highest prob
-            self.mcts.update_with_move(move)
             move_probs[list(acts)] = probs
+            if self.is_selfplay:
+                move = np.random.choice(acts, p=probs)
+                # with the default temp=1e-3, it is almost equivalent
+                # to choosing the move with the highest prob
+                self.mcts.update_with_move(move)
+            else:
+                # with the default temp=1e-3, it is almost equivalent
+                # to choosing the move with the highest prob
+                move = np.random.choice(acts, p=probs)
+                # reset the root node
+                self.mcts.update_with_move(-1)
 
             if return_prob:
                 return move, move_probs
