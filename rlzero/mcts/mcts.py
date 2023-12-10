@@ -42,7 +42,7 @@ class MCTS(object):
 
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)  # MCTS of the [BACKUP] step
-        print('after update...', node._n_visits, node._Q)
+        # print('after update...', node._n_visits, node._Q)
 
     def _evaluate(self, game_env):
         """Template Method, Override for different child class MCTS of the.

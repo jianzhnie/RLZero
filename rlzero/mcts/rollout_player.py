@@ -11,7 +11,7 @@ class RolloutPlayer(Player):
     def reset_player(self) -> None:
         self.mcts.update_with_move(-1)
 
-    def play(self, game_env, **kwargs):
+    def get_action(self, game_env, **kwargs):
         sensible_moves = game_env.availables
         if len(sensible_moves) > 0:
             move = self.mcts.simulate(game_env)

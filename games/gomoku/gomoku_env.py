@@ -67,7 +67,7 @@ class GomokuEnv(object):
         w = move % self.width
         return [h, w]
 
-    def location_to_move(self, location: List[int, int]) -> int:
+    def location_to_move(self, location: List) -> int:
         """From location to move.
 
         Args:

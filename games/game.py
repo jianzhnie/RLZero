@@ -2,16 +2,16 @@ from __future__ import print_function
 
 import numpy as np
 
-from games.gomoku.gomoku_env import Board
+from games.gomoku.gomoku_env import GomokuEnv
 
 
 class Game(object):
     """game server."""
 
-    def __init__(self, board: Board):
+    def __init__(self, board: GomokuEnv):
         self.board = board
 
-    def graphic(self, board: Board, player1: int, player2: int):
+    def graphic(self, board: GomokuEnv, player1: int, player2: int):
         """Draw the board and show game info."""
         width = board.width
         height = board.height
@@ -70,7 +70,7 @@ class Game(object):
                         print('Game end. Tie')
                 return winner
 
-    def start_self_play(self, player, is_shown=0, temp=1e-3):
+    def start_self_play(self, player, is_shown=0, temperature=1e-3):
         """start a self-play game using a MCTS player, reuse the search tree,
         and store the self-play data: (state, mcts_probs, z) for training."""
         self.board.init_board()
@@ -78,7 +78,7 @@ class Game(object):
         states, mcts_probs, current_players = [], [], []
         while True:
             move, move_probs = player.get_action(self.board,
-                                                 temp=temp,
+                                                 temperature=temperature,
                                                  return_prob=1)
             # store the data
             states.append(self.board.current_state())

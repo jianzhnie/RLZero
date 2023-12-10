@@ -42,7 +42,7 @@ class AlphaZeroAgent(object):
 
         current_state = torch.from_numpy(current_state).float().to(self.device)
         log_act_probs, value = self.policy_value_net(current_state)
-        act_probs = np.exp(log_act_probs.data.numpy().flatten())
+        act_probs = np.exp(log_act_probs.detach().cpu().numpy())
         act_probs = zip(legal_positions, act_probs[legal_positions])
         value = value.data[0][0]
         return act_probs, value
@@ -54,22 +54,17 @@ class AlphaZeroAgent(object):
         """
         state_batch = torch.FloatTensor(state_batch, device=self.device)
         log_act_probs, value = self.policy_value_net(state_batch)
-        act_probs = np.exp(log_act_probs.data.cpu().numpy())
-        return act_probs, value.data.cpu().numpy()
+        act_probs = np.exp(log_act_probs.cpu().numpy())
+        return act_probs, value.cpu().numpy()
 
     def learn(self, state_batch, mcts_probs, target_vs):
         """perform a training step."""
         # train mode
         self.policy_value_net.train()
-
-        state_batch = np.array(state_batch)
-        mcts_probs = np.array(mcts_probs)
-        target_batch = np.array(target_vs)
-
         device = self.device
         state_batch = torch.FloatTensor(state_batch, device)
         mcts_probs = torch.FloatTensor(mcts_probs, device)
-        target_batch = torch.FloatTensor(target_batch, device)
+        target_batch = torch.FloatTensor(target_vs, device)
 
         log_act_probs, value = self.policy_value_net(state_batch)
 
@@ -102,7 +97,7 @@ class AlphaZeroAgent(object):
             log_pi, value = self.policy_value_net(state_batch)
 
         act_probs = np.exp(log_pi.data.numpy())
-        return act_probs, value.data.numpy()
+        return act_probs, value.cpu().numpy()
 
     def save(
         self,

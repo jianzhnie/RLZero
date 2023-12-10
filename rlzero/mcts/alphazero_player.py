@@ -1,5 +1,3 @@
-from typing import Any
-
 import numpy as np
 
 from .alphazero_mcts import AlphaZeroMCTS
@@ -30,12 +28,12 @@ class AlphaZeroPlayer(Player):
         """reset, reconstructing the MCTS Tree for next simulation."""
         self.mcts.update_with_move(-1)
 
-    def play(
+    def get_action(
         self,
         game_env,
         temperature: float = 1e-3,
         return_prob: bool = False,
-    ) -> tuple[Any, np.NDArray]:
+    ):
         sensible_moves = game_env.availables
         # the pi vector returned by MCTS as in the alphaGo Zero paper
         move_probs = np.zeros(game_env.width * game_env.height)

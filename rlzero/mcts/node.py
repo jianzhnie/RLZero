@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple
+from typing import List
 
 import numpy as np
 
@@ -18,7 +18,7 @@ class TreeNode(object):
         self._P = prior_p  # 先验概率
         # its the prior probability that action's taken to get this node
 
-    def select(self, c_puct: float) -> Tuple(int, Any):
+    def select(self, c_puct: float):
         """Select action among children that gives maximum action value Q plus
         bonus u(P).
 
@@ -27,7 +27,7 @@ class TreeNode(object):
         return max(self._children.items(),
                    key=lambda act_node: act_node[1].get_value(c_puct))
 
-    def expand(self, action_priors: List[int, float], add_noise: bool = False):
+    def expand(self, action_priors: List, add_noise: bool = False):
         """Expand tree by creating new children.
 
         When train by self-play, add dirichlet noises in each node.

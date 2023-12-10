@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -5,7 +6,7 @@ import torch.nn.functional as F
 class PolicyValueNet(nn.Module):
     """policy-value network module."""
 
-    def __init__(self, board_width, board_height):
+    def __init__(self, board_width: int, board_height: int) -> None:
         super().__init__()
 
         self.board_width = board_width
@@ -23,18 +24,30 @@ class PolicyValueNet(nn.Module):
         self.val_fc1 = nn.Linear(2 * board_width * board_height, 64)
         self.val_fc2 = nn.Linear(64, 1)
 
-    def forward(self, state_input):
+        self.relu1 = nn.ReLU(inplace=True)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.relu4 = nn.ReLU(inplace=True)
+        self.relu5 = nn.ReLU(inplace=True)
+        self.relu6 = nn.ReLU(inplace=True)
+
+    def forward(
+            self,
+            state_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # common layers
-        x = F.relu(self.conv1(state_input))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = self.relu1(self.conv1(state_input))
+        x = self.relu2(self.conv2(x))
+        x = self.relu3(self.conv3(x))
         # action policy layers
-        x_act = F.relu(self.act_conv1(x))
+        x_act = self.relu4(self.act_conv1(x))
         x_act = x_act.view(-1, 4 * self.board_width * self.board_height)
-        x_act = F.log_softmax(self.act_fc1(x_act))
+        logits = self.act_fc1(x_act)
+        x_act = F.log_softmax(logits, dim=1)
+
         # state value layers
-        x_val = F.relu(self.val_conv1(x))
+        x_val = self.relu5(self.val_conv1(x))
         x_val = x_val.view(-1, 2 * self.board_width * self.board_height)
-        x_val = F.relu(self.val_fc1(x_val))
-        x_val = F.tanh(self.val_fc2(x_val))
+        x_val = self.relu6(self.val_fc1(x_val))
+        x_val = self.val_fc2(x_val)
+        x_val = torch.tanh(x_val)
         return x_act, x_val
