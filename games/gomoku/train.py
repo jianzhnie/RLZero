@@ -12,8 +12,8 @@ from RLZero.games.gomoku.alphazero_agent import AlphaZeroAgent
 sys.path.append('../../')
 from replaybuffer import Buffer
 
-from rlzero.mcts.mcts_alphazero import MCTSPlayer
 from rlzero.mcts.mcts_pure import MCTSPlayer as MCTS_Pure
+from RLZero.rlzero.mcts.alphazero_mcts import MCTSPlayer
 
 
 def get_equi_data(play_data, board_width, board_height):

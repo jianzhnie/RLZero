@@ -6,7 +6,7 @@ from typing import List, Tuple
 import numpy as np
 
 
-class Board(object):
+class GomokuEnv(object):
     """board for the game.
 
     board states stored as a dict,
@@ -14,10 +14,13 @@ class Board(object):
     value: player as pieces type
     """
 
-    def __init__(self,
-                 width: int = 8,
-                 height: int = 8,
-                 n_in_row: int = 5) -> None:
+    def __init__(
+        self,
+        width: int = 8,
+        height: int = 8,
+        n_in_row: int = 5,
+        first_player: int = 0,
+    ) -> None:
         self.width = width
         self.height = height
         self.states = {}
@@ -35,12 +38,16 @@ class Board(object):
         self.states_sequence.extendleft([[-1, -1]] * self.feature_planes)
         # use the deque to store last 8 moves
         # fill in with [-1,-1] when one game start to indicate no move
+        self.init_board(first_player)
 
     def init_board(self, start_player: int = 0) -> None:
         """init the board and set some variables."""
         if self.width < self.n_in_row or self.height < self.n_in_row:
             raise Exception(
-                f'Board width {self.width} and height {self.height} can not be less than {self.n_in_row}'
+                f'Board width and height can not less than {self.n_in_row}')
+        if start_player not in (0, 1):
+            raise Exception(
+                f'start_player should be 0 (player1 first) or 1 (player2 first), but got {start_player}'
             )
         self.current_player = self.players[start_player]  # start player
         # keep available moves in a list
@@ -184,3 +191,6 @@ class Board(object):
 
     def get_current_player(self) -> int:
         return self.current_player
+
+    def __str__(self):
+        return 'Gomoku Board'
