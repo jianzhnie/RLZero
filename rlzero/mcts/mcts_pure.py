@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 import numpy as np
 
+from .node import TreeNode
+
 
 def rollout_policy_fn(game_env) -> zip[tuple[Any, Any]]:
     """a coarse, fast version of policy_fn used in the rollout phase."""
@@ -18,98 +20,6 @@ def policy_value_fn(game_env) -> tuple[zip[tuple[Any, Any]], Literal[0]]:
     # return uniform probabilities and 0 score for pure MCTS
     action_probs = np.ones(len(game_env.availables)) / len(game_env.availables)
     return zip(game_env.availables, action_probs), 0
-
-
-class TreeNode(object):
-    """A node in the MCTS tree.
-
-    Each node keeps track of its own value Q, prior probability P, and its visit-count-adjusted prior score u.
-    """
-
-    def __init__(self, parent, prior_p: float) -> None:
-        self._parent = parent
-        self._children = {}  # a map from action to TreeNode
-        self._n_visits = 0  # 访问次数
-        self._Q = 0  # 价值
-        self._u = 0  # score u
-        self._P = prior_p  # 先验概率
-
-    def select(self, c_puct: float) -> tuple:
-        """Select action among children that gives maximum action value Q plus
-        bonus u(P).
-
-        Return: A tuple of (action, next_node)
-        """
-        return max(self._children.items(),
-                   key=lambda act_node: act_node[1].get_value(c_puct))
-
-    def expand(self, action_priors: list[tuple[Any, Any]]) -> None:
-        """Expand tree by creating new children.
-
-        action_priors: a list of tuples of actions and their prior probability
-            according to the policy function.
-        """
-        for action, prob in action_priors:
-            if action not in self._children:
-                self._children[action] = TreeNode(self, prob)
-
-    def update(self, leaf_value: float) -> None:
-        """Update node values from leaf evaluation.
-
-        leaf_value: the value of subtree evaluation from the current player's
-            perspective.
-        """
-        # Count visit.
-        self._n_visits += 1
-        # Update Q, a running average of values for all visits.
-        # there is just: (v-Q)/(n+1)+Q = (v-Q+(n+1)*Q)/(n+1)=(v+n*Q)/(n+1)
-        self._Q += 1.0 * (leaf_value - self._Q) / self._n_visits
-
-    def update_recursive(self, leaf_value: float) -> None:
-        """Like a call to update(), but applied recursively for all
-        ancestors."""
-        # If it is not root, this node's parent should be updated first.
-        if self._parent:
-            self._parent.update_recursive(-leaf_value)
-        self.update(leaf_value)
-
-    def get_value(self, c_puct: float) -> Any:
-        """Calculate and return the value for this node.
-
-        It is a combination of leaf evaluations Q, and this node's prior
-        adjusted for its visit count, u.
-        c_puct: a number in (0, inf) controlling the relative impact of
-            value Q, and prior probability P, on this node's score.
-        """
-        self._u = (c_puct * self._P * np.sqrt(self._parent._n_visits) /
-                   (1 + self._n_visits))
-        return self._Q + self._u
-
-    def select_action(self, temperature: float):
-        """Select action according to the visit count distribution and the
-        temperature."""
-        visit_counts = np.array(
-            [child._n_visits for child in self._children.values()])
-        actions = [action for action in self._children.keys()]
-        if temperature == 0:
-            action = actions[np.argmax(visit_counts)]
-        elif temperature == float('inf'):
-            action = np.random.choice(actions)
-        else:
-            # See paper appendix Data Generation
-            visit_count_distribution = visit_counts**(1 / temperature)
-            visit_count_distribution = visit_count_distribution / sum(
-                visit_count_distribution)
-            action = np.random.choice(actions, p=visit_count_distribution)
-
-        return action
-
-    def is_leaf(self) -> bool:
-        """Check if leaf node (i.e. no nodes below this have been expanded)."""
-        return self._children == {}
-
-    def is_root(self) -> bool:
-        return self._parent is None
 
 
 class MCTS(object):
