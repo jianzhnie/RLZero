@@ -39,6 +39,8 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 
 - https://bbs.huaweicloud.com/blogs/384922
 
+- http://xtf615.com/categories/%E5%BC%BA%E5%8C%96%E5%AD%A6%E4%B9%A0/
+
 - [How to Build Your Own MuZero Using Python (Part 1/3)](https://medium.com/applied-data-science/how-to-build-your-own-muzero-in-python-f77d5718061a)
 
 - [How to Build Your Own MuZero Using Python (Part 2/3)](https://medium.com/applied-data-science/how-to-build-your-own-deepmind-muzero-in-python-part-2-3-f99dad7a7ad)
