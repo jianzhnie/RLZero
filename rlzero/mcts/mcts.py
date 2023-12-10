@@ -30,9 +30,12 @@ class MCTS(object):
         while True:
             if node.is_leaf():
                 break
+            # Greedily select next move.
             action, node = node.select(self._c_puct)
             # MCTS of SELECT step
             game_env.do_move(action)
+            # print('select action is ...',action)
+            # print(action, game_env.availables)
 
         # Evaluate the leaf using a network which outputs a list of (action, probability)
         # tuples p and also a score v in [-1, 1] for the current player.
@@ -46,6 +49,7 @@ class MCTS(object):
 
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)  # MCTS of the [BACKUP] step
+        print('after update...', node._n_visits, node._Q)
 
     def _evaluate(self, game_env):
         """Template Method, Override for different child class MCTS of the.

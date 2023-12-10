@@ -4,18 +4,18 @@ from .rollout_mcts import RolloutMCTS
 
 class RolloutPlayer(Player):
 
-    def __init__(self, nplays=1000, c_puct=5, player_id=0, player_name=''):
+    def __init__(self, n_playout=1000, c_puct=5, player_id=0, player_name=''):
         Player.__init__(self, player_id, player_name)
-        self.mcts = RolloutMCTS(nplays, c_puct)
+        self.mcts = RolloutMCTS(n_playout, c_puct)
 
     def reset_player(self):
-        self.mcts.reuse(-1)
+        self.mcts.update_with_move(-1)
 
-    def play(self, board, **kwargs):
-        sensible_moves = board.availables
+    def play(self, game_env, **kwargs):
+        sensible_moves = game_env.availables
         if len(sensible_moves) > 0:
-            move = self.mcts.simulate(board)
-            self.mcts.reuse(-1)
+            move = self.mcts.simulate(game_env)
+            self.mcts.update_with_move(move)
             return move
         else:
             print('WARNING: the board is full')
