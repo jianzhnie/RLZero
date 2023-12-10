@@ -19,13 +19,7 @@ class MCTS(object):
 
     def _playout(self, game_env):
         """Run a single search from the root to the leaf, getting a value at
-        the leaf and propagating it back through its parents.
-
-        State is modified in-place, so a copy must be
-        provided.
-        Arguments:
-        state -- a copy of the state.
-        """
+        the leaf and propagating it back through its parents."""
         node = self._root
         while True:
             if node.is_leaf():
@@ -39,13 +33,12 @@ class MCTS(object):
 
         # Evaluate the leaf using a network which outputs a list of (action, probability)
         # tuples p and also a score v in [-1, 1] for the current player.
-        is_end, action_prob, leaf_value = self._evaluate(
-            game_env)  # MCTS Of the EVALUATE step
+        is_end, action_prob, leaf_value = self._evaluate(game_env)
+        # MCTS Of the EVALUATE step
 
-        if not is_end:  # if not end then expand
-            node.expand(
-                action_prob,
-                add_noise=self._is_selfplay)  # MCTS of the [EXPAND] step
+        if not is_end:
+            node.expand(action_prob, add_noise=self._is_selfplay)
+        # MCTS of the [EXPAND] step
 
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)  # MCTS of the [BACKUP] step

@@ -8,7 +8,7 @@ class RolloutPlayer(Player):
         Player.__init__(self, player_id, player_name)
         self.mcts = RolloutMCTS(n_playout, c_puct)
 
-    def reset_player(self):
+    def reset_player(self) -> None:
         self.mcts.update_with_move(-1)
 
     def play(self, game_env, **kwargs):
