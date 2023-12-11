@@ -51,7 +51,7 @@ class MCTS(object):
         """
         raise NotImplementedError
 
-    def _play(self, temp=1e-3):
+    def _play(self, temperature=1e-3):
         """Template Method, Override for different child class MCTS of the.
 
         [PLAY] Step Return the final action.
@@ -70,21 +70,21 @@ class MCTS(object):
         else:
             self._root = TreeNode(None, 1.0)
 
-    def simulate(self, game_env, temp: float = 1e-3):
+    def simulate(self, game_env, temperature: float = 1e-3):
         """Runs all simulations sequentially and returns the available actions and their corresponding probabilities
         Arguments:
         state -- the current state, including both game state and the current player.
-        temp -- temperature parameter in (0, 1] that controls the level of exploration
+        temperature -- temperature parameter in (0, 1] that controls the level of exploration
         Returns:
         the available actions and the corresponding probabilities
         """
         # The slowest section!!!! how to speed up!!
         for n in range(self.n_playout):
-            env_copy = copy.deepcopy(
-                game_env)  # key!!!, can't change the state object
+            env_copy = copy.deepcopy(game_env)
+            # key!!!, can't change the state object
             self._playout(env_copy)  # the state_copy reference will be changed
 
-        return self._play(temp)  # override for different child class
+        return self._play(temperature)  # override for different child class
 
     def __str__(self):
         return 'MCTS'

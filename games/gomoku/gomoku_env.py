@@ -1,12 +1,13 @@
 from __future__ import print_function
 
-from collections import deque
 from typing import List, Tuple
 
+import gymnasium
 import numpy as np
+from gymnasium.spaces import Box, Discrete
 
 
-class GomokuEnv(object):
+class GomokuEnv(gymnasium.Env):
     """board for the game.
 
     board states stored as a dict,
@@ -19,80 +20,78 @@ class GomokuEnv(object):
         width: int = 8,
         height: int = 8,
         n_in_row: int = 5,
-        first_player: int = 0,
+        start_player: int = 0,
     ) -> None:
         self.width = width
         self.height = height
         self.states = {}
-        # need how many pieces in a row to win
         self.n_in_row = n_in_row
         self.players = [1, 2]  # player1 and player2
-        self.feature_planes = 3
-        # how many binary feature planes we use,
-        # in alphago zero is 17 and the input to the neural network is 19x19x17
-        # here is a self.width x self.height x (self.feature_planes+1) binary feature planes,
-        # the self.feature_planes is the number of history features
-        # the additional plane is the color feature that indicate the current player
-        # for example, in 11x11 board, is 11x11x9,8 for history features and 1 for current player
-        self.states_sequence = deque(maxlen=self.feature_planes)
-        self.states_sequence.extendleft([[-1, -1]] * self.feature_planes)
-        # use the deque to store last 8 moves
-        # fill in with [-1,-1] when one game start to indicate no move
-        self.init_board(first_player)
+        self.start_player = start_player  # start player
+        self.info = {}
+        self.action_space = Discrete(width * height)
+        self.observation_space = Box(0, 1, shape=(4, width, height))
 
-    def init_board(self, start_player: int = 0) -> None:
+    def reset(self) -> None:
         """init the board and set some variables."""
         if self.width < self.n_in_row or self.height < self.n_in_row:
             raise Exception(
                 f'Board width and height can not less than {self.n_in_row}')
-        if start_player not in (0, 1):
-            raise Exception(
-                f'start_player should be 0 (player1 first) or 1 (player2 first), but got {start_player}'
-            )
-        self.current_player = self.players[start_player]  # start player
+        self.current_player = self.players[self.start_player]  # start player
         # keep available moves in a list
         # once a move has been played, remove it right away
         self.availables = list(range(self.width * self.height))
         self.states = {}
-        self.last_move = -1
-        self.states_sequence = deque(maxlen=self.feature_planes)
-        self.states_sequence.extendleft([[-1, -1]] * self.feature_planes)
+        self.last_action = -1
+        return self.current_state()
 
-    def move_to_location(self, move: int) -> List:
-        """3*3 board's moves like:
+    def step(self, action: int):
+        """Update the board."""
+        self.states[action] = self.current_player
+        if action in self.availables:
+            self.availables.remove(action)
+        # change the current player
+        self.last_action = action
+        done, winner = self.game_end()
+        reward = 0
+        if done:
+            if winner == self.current_player:
+                reward = 1
+            else:
+                reward = -1
 
-        6 7 8     3 4 5     0 1 2 and move 5's location is (1,2)
-        """
-        h = move // self.width
-        w = move % self.width
-        return [h, w]
+        self.current_player = (self.players[0] if self.current_player
+                               == self.players[1] else self.players[1])
+        obs = self.current_state()
+        return obs, reward, done, self.info
 
-    def location_to_move(self, location: List) -> int:
-        """From location to move.
-
-        Args:
-            location (List[int, int]): [x,y] x is the row, y is the column
-
-        Returns:
-            move: int: the move according to the location
-        """
-
-        if len(location) != 2:
-            return -1
-        h = location[0]
-        w = location[1]
-        move = h * self.width + w
-        if move not in range(self.width * self.height):
-            return -1
-        return move
+    def render(self, mode='human', start_player=0):
+        width = self.width
+        height = self.height
+        p1, p2 = self.players
+        print()
+        for x in range(width):
+            print('{0:8}'.format(x), end='')
+        print('\r\n')
+        for i in range(height - 1, -1, -1):
+            print('{0:4d}'.format(i), end='')
+            for j in range(width):
+                loc = i * width + j
+                p = self.states.get(loc, -1)
+                if p == p1:
+                    print('B'.center(8), end='')
+                elif p == p2:
+                    print('W'.center(8), end='')
+                else:
+                    print('_'.center(8), end='')
+            print('\r\n\r\n')
 
     def current_state(self) -> np.ndarray:
         """return the board state from the perspective of the current player.
 
         state shape: (self.feature_planes+1) x width x height
         """
-        square_state = np.zeros(
-            (self.feature_planes + 1, self.width, self.height))
+        square_state = np.zeros((4, self.width, self.height))
         if self.states:
             moves, players = np.array(list(zip(*self.states.items())))
             # states contain the (key,value) indicate (move,player)
@@ -111,25 +110,12 @@ class GomokuEnv(object):
             square_state[1][move_oppo // self.width,
                             move_oppo % self.height] = 1.0
             # indicate the last move location
-            square_state[2][self.last_move // self.width,
-                            self.last_move % self.height] = 1.0
+            square_state[2][self.last_action // self.width,
+                            self.last_action % self.height] = 1.0
         if len(self.states) % 2 == 0:
-            square_state[
-                self.feature_planes][:, :] = 1.0  # indicate the colour to play
+            square_state[3][:, :] = 1.0
+            # indicate the colour to play
         return square_state[:, ::-1, :]
-
-    def do_move(self, move: int) -> None:
-        """Update the board."""
-        self.states[move] = self.current_player
-        # save the move in states
-        self.states_sequence.appendleft([move, self.current_player])
-        # save the last some moves in deque，so as to construct the binary feature planes
-        self.availables.remove(move)
-        # remove the played move from self.availables
-        self.current_player = (self.players[0] if self.current_player
-                               == self.players[1] else self.players[1])
-        # change the current player
-        self.last_move = move
 
     def has_a_winner(self) -> Tuple[bool, int]:
         """Judge if there's a 5-in-a-row, and which player if so.
@@ -189,8 +175,47 @@ class GomokuEnv(object):
             return True, -1
         return False, -1
 
+    def move_to_location(self, move: int) -> List:
+        """3*3 board's moves like:
+
+        6 7 8     3 4 5     0 1 2 and move 5's location is (1,2)
+        """
+        h = move // self.width
+        w = move % self.width
+        return [h, w]
+
+    def location_to_move(self, location: List) -> int:
+        """From location to move.
+
+        Args:
+            location (List[int, int]): [x,y] x is the row, y is the column
+
+        Returns:
+            move: int: the move according to the location
+        """
+
+        if len(location) != 2:
+            return -1
+        h = location[0]
+        w = location[1]
+        move = h * self.width + w
+        if move not in range(self.width * self.height):
+            return -1
+        return move
+
     def get_current_player(self) -> int:
         return self.current_player
 
     def __str__(self):
         return 'Gomoku Board'
+
+
+if __name__ == '__main__':
+    env = GomokuEnv()
+    env.reset()
+    for _ in range(100):
+        env.render()
+        action = env.action_space.sample()
+        obs, reward, done, _ = env.step(action)
+        print(obs)
+        print(reward)
