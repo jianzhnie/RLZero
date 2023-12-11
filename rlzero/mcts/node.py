@@ -126,3 +126,10 @@ class TreeNode(object):
     def is_root(self) -> bool:
         """check if it's root node."""
         return self._parent is None
+
+    def __str__(self) -> str:
+        s = []
+        s.append(f'Q-Value:  {self._Q}')
+        s.append(f'UctScore: {self._u}')
+        s.append(f'numVisits: {self._n_visits}')
+        return '%s: {%s}' % (self.__class__.__name__, ', '.join(s))
