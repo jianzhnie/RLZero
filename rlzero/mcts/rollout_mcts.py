@@ -35,7 +35,7 @@ class RolloutMCTS(MCTS):
             if rollout_end:
                 break
             rollout_action = self._rollout(game_env)
-            game_env.do_move(rollout_action)
+            game_env.step(rollout_action)
         else:
             # If no break from the loop, issue a warning.
             print('WARNING: rollout reached move limit')
@@ -49,7 +49,7 @@ class RolloutMCTS(MCTS):
 
         return is_end, action_probs, leaf_value
 
-    def _play(self, temp: float = 1e-3):
+    def _play(self, temperature: float = 1e-3):
         return max(self._root._children.items(),
                    key=lambda act_node: act_node[1]._n_visits)[0]
 

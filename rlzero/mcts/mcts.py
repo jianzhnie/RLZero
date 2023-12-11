@@ -27,7 +27,7 @@ class MCTS(object):
             # Greedily select next move.
             action, node = node.select(self._c_puct)
             # MCTS of SELECT step
-            game_env.do_move(action)
+            game_env.step(action)
             # print('select action is ...',action)
             # print(action, game_env.availables)
 

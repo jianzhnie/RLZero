@@ -7,6 +7,8 @@ import torch.optim as optim
 
 from rlzero.model.policy_value_net import PolicyValueNet
 
+from .gomoku_env import GomokuEnv
+
 
 class AlphaZeroAgent(object):
 
@@ -20,8 +22,6 @@ class AlphaZeroAgent(object):
     ) -> None:
         self.board_width = board_width
         self.board_height = board_height
-
-        self.device = device
         self.policy_value_net = PolicyValueNet(board_width, board_height)
         self.policy_value_net.to(device)
         self.optimizer = optim.Adam(
@@ -29,17 +29,18 @@ class AlphaZeroAgent(object):
             lr=learning_rate,
             weight_decay=weight_decay,
         )
+        self.device = device
 
-    def policy_value_fn(self, board):
+    def policy_value_fn(self, game_env: GomokuEnv):
         """
         input: board
         output: a list of (action, probability) tuples for each available
         action and the score of the board state
         """
-        legal_positions = board.availables
-        current_state = np.ascontiguousarray(board.current_state().reshape(
-            -1, 4, self.board_width, self.board_height))
-
+        legal_positions = game_env.availables
+        current_state = game_env.current_state().reshape(
+            -1, 4, self.board_width, self.board_height)
+        current_state = np.ascontiguousarray(current_state)
         current_state = torch.from_numpy(current_state).float().to(self.device)
         log_act_probs, value = self.policy_value_net(current_state)
         act_probs = np.exp(log_act_probs.detach().cpu().numpy().flatten())
@@ -89,16 +90,16 @@ class AlphaZeroAgent(object):
 
     def predict(self, state_batch):
         self.policy_value_net.eval()  # eval mode
-        state_batch = np.array(state_batch)
         state_batch = torch.FloatTensor(state_batch).to(self.device)
 
         with torch.no_grad():
-            log_pi, value = self.policy_value_net(state_batch)
+            log_act_probs, value = self.policy_value_net(state_batch)
 
-        act_probs = np.exp(log_pi.data.numpy())
-        return act_probs, value.cpu().numpy()
+        act_probs = np.exp(log_act_probs.detach().cpu().numpy())
+        value = value.detach().cpu().numpy()
+        return act_probs, value
 
-    def save(
+    def save_model(
         self,
         save_dir: str,
         model_name: str = 'model.th',

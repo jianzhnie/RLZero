@@ -31,11 +31,9 @@ class PolicyValueNet(nn.Module):
         self.relu5 = nn.ReLU(inplace=True)
         self.relu6 = nn.ReLU(inplace=True)
 
-    def forward(
-            self,
-            state_input: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # common layers
-        x = self.relu1(self.conv1(state_input))
+        x = self.relu1(self.conv1(obs))
         x = self.relu2(self.conv2(x))
         x = self.relu3(self.conv3(x))
         # action policy layers
