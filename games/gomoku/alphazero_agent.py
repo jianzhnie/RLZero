@@ -42,9 +42,9 @@ class AlphaZeroAgent(object):
 
         current_state = torch.from_numpy(current_state).float().to(self.device)
         log_act_probs, value = self.policy_value_net(current_state)
-        act_probs = np.exp(log_act_probs.detach().cpu().numpy())
+        act_probs = np.exp(log_act_probs.detach().cpu().numpy().flatten())
         act_probs = zip(legal_positions, act_probs[legal_positions])
-        value = value.data[0][0]
+        value = value.item()
         return act_probs, value
 
     def policy_value(self, state_batch):
@@ -52,19 +52,19 @@ class AlphaZeroAgent(object):
         input: a batch of states
         output: a batch of action probabilities and state values
         """
-        state_batch = torch.FloatTensor(state_batch, device=self.device)
+        state_batch = torch.FloatTensor(state_batch).to(self.device)
         log_act_probs, value = self.policy_value_net(state_batch)
-        act_probs = np.exp(log_act_probs.cpu().numpy())
-        return act_probs, value.cpu().numpy()
+        act_probs = np.exp(log_act_probs.detach().cpu().numpy())[0]
+        value = value.detach().cpu().numpy()
+        return act_probs, value
 
     def learn(self, state_batch, mcts_probs, target_vs):
         """perform a training step."""
         # train mode
         self.policy_value_net.train()
-        device = self.device
-        state_batch = torch.FloatTensor(state_batch, device)
-        mcts_probs = torch.FloatTensor(mcts_probs, device)
-        target_batch = torch.FloatTensor(target_vs, device)
+        state_batch = torch.FloatTensor(state_batch).to(self.device)
+        mcts_probs = torch.FloatTensor(mcts_probs).to(self.device)
+        target_batch = torch.FloatTensor(target_vs).to(self.device)
 
         log_act_probs, value = self.policy_value_net(state_batch)
 
@@ -85,13 +85,12 @@ class AlphaZeroAgent(object):
         # calc policy entropy, for monitoring only
         entropy = -torch.mean(
             torch.sum(torch.exp(log_act_probs) * log_act_probs, 1))
-        return loss.item(), policy_loss.item(), value_loss.item(
-        ), entropy.item()
+        return loss.item(), entropy.item()
 
     def predict(self, state_batch):
         self.policy_value_net.eval()  # eval mode
         state_batch = np.array(state_batch)
-        state_batch = torch.FloatTensor(state_batch, device=self.device)
+        state_batch = torch.FloatTensor(state_batch).to(self.device)
 
         with torch.no_grad():
             log_pi, value = self.policy_value_net(state_batch)
