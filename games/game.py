@@ -49,8 +49,8 @@ class Game(object):
                             'or 1 (player2 first)')
         self.board.init_board(start_player)
         p1, p2 = self.board.players
-        player1.set_player_ind(p1)
-        player2.set_player_ind(p2)
+        player1.set_player_id(p1)
+        player2.set_player_id(p2)
         players = {p1: player1, p2: player2}
         if is_shown:
             self.graphic(self.board, player1.player, player2.player)

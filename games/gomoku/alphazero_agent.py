@@ -54,7 +54,7 @@ class AlphaZeroAgent(object):
         """
         state_batch = torch.FloatTensor(state_batch).to(self.device)
         log_act_probs, value = self.policy_value_net(state_batch)
-        act_probs = np.exp(log_act_probs.detach().cpu().numpy())[0]
+        act_probs = np.exp(log_act_probs.detach().cpu().numpy())
         value = value.detach().cpu().numpy()
         return act_probs, value
 
