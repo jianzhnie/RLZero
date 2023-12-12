@@ -48,7 +48,7 @@ class RolloutMCTS(object):
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)
         # MCTS of the [BACKUP] step
-        # print('after update...', node._n_visits, node._Q)
+        # print('after update...', node._visit_count, node._Q)
 
     def _evaluate(self, game_env):
         """Use the rollout policy to play until the end of the game, returning.
@@ -81,7 +81,7 @@ class RolloutMCTS(object):
             env_copy = copy.deepcopy(game_env)
             self._playout(env_copy)
         return max(self._root._children.items(),
-                   key=lambda act_node: act_node[1]._n_visits)[0]
+                   key=lambda act_node: act_node[1]._visit_count)[0]
 
     def update_with_move(self, last_move: int):
         """Step forward in the tree, keeping everything we already know about
@@ -122,7 +122,7 @@ class RolloutPlayer(Player):
         player_id: int = 0,
         player_name: str = '',
     ) -> None:
-        super().__init__()
+        super().__init__(player_id, player_name)
         self.mcts = RolloutMCTS(n_playout, c_puct)
 
     def reset_player(self) -> None:

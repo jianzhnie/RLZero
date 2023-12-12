@@ -7,20 +7,20 @@ class HumanPlayer(Player):
         Player.__init__(self, player_id, player_name)
         self.can_click = True  # can click the board
 
-    def get_action(self, board):
+    def get_action(self, game_env):
         """play based on human input."""
         try:
             location = input('Your move: ')
             if isinstance(location, str):
                 location = [int(n, 10)
                             for n in location.split(',')]  # for python3
-            move = board.loc2move(location)
+            move = game_env.location_to_move(location)
         except Exception as e:
             print(e)
             move = -1
-        if move == -1 or move not in board.availables:
+        if move == -1 or move not in game_env.availables:
             print('invalid move')
-            move = self.get_action(board)
+            move = self.get_action(game_env)
         return move
 
     def get_action_tool(self, board, **kwargs):
@@ -35,5 +35,5 @@ class HumanPlayer(Player):
         return move
 
     def __str__(self):
-        return 'HumanPlayer {}{}'.format(self.get_player_id(),
-                                         self.get_player_name())
+        return 'HumanPlayer, id: {}, name {}.'.format(self.get_player_id(),
+                                                      self.get_player_name())

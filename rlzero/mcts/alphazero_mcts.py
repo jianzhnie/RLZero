@@ -46,7 +46,7 @@ class AlphaZeroMCTS(object):
         State is modified in-place, so a copy must be provided.
         """
         node = self._root
-        while 1:
+        while True:
             if node.is_leaf():
                 break
             # Greedily select next move.
@@ -85,7 +85,7 @@ class AlphaZeroMCTS(object):
             self._playout(env_copy)  # the state_copy reference will be changed
 
         # calc the move probabilities based on visit counts at the root node
-        act_visits = [(act, node._n_visits)
+        act_visits = [(act, node._visit_count)
                       for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
         act_probs = softmax(1.0 / temperature *
@@ -115,12 +115,13 @@ class AlphaZeroPlayer(Player):
         n_playout: int = 1000,
         c_puct: float = 5,
         is_selfplay: bool = False,
-        add_noise: bool = None,
+        player_id: int = 0,
+        player_name: str = '',
     ) -> None:
-        super().__init__()
+        super().__init__(player_id, player_name)
 
         self.is_selfplay = is_selfplay
-        self.add_noise = is_selfplay if add_noise is None else add_noise
+        self.add_noise = is_selfplay
         self.mcts = AlphaZeroMCTS(
             policy_value_fn,
             n_playout=n_playout,
