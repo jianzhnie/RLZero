@@ -25,7 +25,7 @@ class TreeNode(object):
         # The parent node.
         self._parent = parent
         self._children = {}  # a map from action to TreeNode
-        self.visit_count = 0  # 访问次数
+        self.explore_count = 0  # 访问次数
         self.total_reward = 0  # 价值
         self.prior = prior  # 先验概率
 
@@ -37,6 +37,7 @@ class TreeNode(object):
         """
         if not self._children:
             raise ValueError('Node has no children.')
+
         return max(self._children.items(),
                    key=lambda act_node: act_node[1].uct_value(c_puct))
 
@@ -73,12 +74,15 @@ class TreeNode(object):
 
     def uct_value(self, c_puct: float):
         """Returns the UCT value of child."""
-        if self._parent.visit_count == 0:
+        if self._parent.explore_count == 0:
             return float('inf')
 
-        exploration_score = self.total_reward / self.visit_count
+        if self.explore_count == 0:
+            return float('inf')
+
+        exploration_score = self.total_reward / self.explore_count
         exploitation_score = math.sqrt(
-            math.log(self._parent.visit_count) / self.visit_count)
+            math.log(self._parent.explore_count) / self.explore_count)
 
         score = exploration_score + c_puct * exploitation_score
         return score
@@ -91,27 +95,25 @@ class TreeNode(object):
         c_puct: a number in (0, inf) controlling the relative impact of
             value Q, and prior probability P, on this node's score.
         """
-        if self._parent.visit_count == 0:
-            return float('inf')
-        exploration_score = self.total_reward / self.visit_count
+        exploration_score = self.total_reward / self.explore_count
         exploitation_score = self.prior * math.sqrt(
-            self._parent.visit_count) / (self.visit_count + 1)
+            self._parent.explore_count) / (self.explore_count + 1)
         score = exploration_score + c_puct * exploitation_score
         return score
 
     def update(self, value: float) -> None:
         """Update the current node information from leaf evaluation, such as
-        ``visit_count`` and ``_value_sum``.
+        ``explore_count`` and ``_value_sum``.
 
         Overview:
-            Update the current node information, such as ``visit_count`` and ``_value_sum``.
+            Update the current node information, such as ``explore_count`` and ``_value_sum``.
         Arguments:
             - value (:obj:`Float`): The the value of subtree evaluation from the current player's
             perspective.
         """
         # Count visit.
         # 更新访问次数
-        self.visit_count += 1
+        self.explore_count += 1
         # Update Q, a running average of values for all visits.
         self.total_reward += value
 
@@ -166,18 +168,8 @@ class TreeNode(object):
         """
         return self._children
 
-    @property
-    def visit_count(self) -> None:
-        """
-        Overview:
-            Get the number of times the current node has been visited.
-        Returns:
-            - output (:obj:`Int`): The number of times the current node has been visited.
-        """
-        return self.visit_count
-
     def __str__(self) -> str:
         s = ['MCTSNode']
         s.append(f'Total Value:  {self.total_reward}')
-        s.append(f'Num Visits: {self.visit_count}')
+        s.append(f'Num Visits: {self.explore_count}')
         return '%s: {%s}' % (self.__class__.__name__, ', '.join(s))

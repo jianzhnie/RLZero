@@ -85,7 +85,7 @@ class AlphaZeroMCTS(object):
             self._playout(env_copy)  # the state_copy reference will be changed
 
         # calc the move probabilities based on visit counts at the root node
-        act_visits = [(act, node.visit_count)
+        act_visits = [(act, node.explore_count)
                       for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
         act_probs = softmax(1.0 / temperature *
