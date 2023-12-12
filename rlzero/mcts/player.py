@@ -18,6 +18,10 @@ class Player(object):
     def get_player_name(self):
         return self.player_name
 
+    def reset_player(self):
+        """reset, reconstructing the MCTS Tree for next simulation."""
+        raise NotImplementedError
+
     # abstract
     def get_action(self, game_env, **kwargs):
         raise NotImplementedError

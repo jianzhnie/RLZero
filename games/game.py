@@ -3,21 +3,62 @@ from __future__ import print_function
 import numpy as np
 
 from games.gomoku.gomoku_env import GomokuEnv
+from rlzero.mcts.player import Player
+
+from .visual_tool import VisualTool
 
 
 class Game(object):
     """game server."""
 
-    def __init__(self, game_env: GomokuEnv):
+    def __init__(
+        self,
+        game_env: GomokuEnv,
+        is_visualize: bool = False,
+    ) -> None:
         self.game_env = game_env
+        self.visualTool = None
+        if is_visualize:
+            self.visualTool = VisualTool(
+                board_size=[self.board.width, self.board.height])
 
-    def graphic(self, game_env: GomokuEnv, player1: int, player2: int):
+    def set_player_symbol(self, start_player):
+        """show board, set player symbol X OR O."""
+        p1, p2 = self.game_env.players
+        if self.game_env.players[start_player] == p1:
+            self.player1_symbol = 'X'
+            self.player2_symbol = 'O'
+        else:
+            self.player1_symbol = 'O'
+            self.player2_symbol = 'X'
+
+    def graphic(
+        self,
+        game_env: GomokuEnv,
+        player1: Player,
+        player2: Player,
+    ):
+        """Draw the board and show game info."""
+        loc = self.game_env.move_to_location(self.game_env.last_move)
+        self.visualTool.graphic(loc[0], loc[1])
+
+    def graphic_command(
+        self,
+        game_env: GomokuEnv,
+        player1: Player,
+        player2: Player,
+    ):
         """Draw the board and show game info."""
         width = game_env.width
         height = game_env.height
 
-        print('Player', player1, 'with X'.rjust(3))
-        print('Player', player2, 'with O'.rjust(3))
+        player1_id = player1 if isinstance(player1,
+                                           int) else player1.get_player_id()
+        player2_id = player2 if isinstance(player2,
+                                           int) else player2.get_player_id()
+
+        print('Player', player1, self.player1_symbol.rjust(3))
+        print('Player', player2, self.player2_symbol.rjust(3))
         print()
         for x in range(width):
             print('{0:4}'.format(x), end='')
@@ -27,18 +68,26 @@ class Game(object):
             for j in range(width):
                 loc = i * width + j
                 p = game_env.states.get(loc, -1)
-                if p == player1:
-                    print('X'.center(8), end='')
-                elif p == player2:
-                    print('O'.center(8), end='')
+                if p == player1_id:
+                    if loc == game_env.last_move:
+                        print(('[%s]' % (self.player1_symbol)).center(4),
+                              end='')
+                    else:
+                        print(self.player1_symbol.center(4), end='')
+                if p == player2_id:
+                    if loc == game_env.last_move:
+                        print(('[%s]' % (self.player2_symbol)).center(4),
+                              end='')
+                    else:
+                        print(self.player2_symbol.center(4), end='')
                 else:
                     print('_'.center(8), end='')
             print('\r\n\r\n')
 
     def start_play(
         self,
-        player1: int,
-        player2: int,
+        player1: Player,
+        player2: Player,
         start_player: int = 0,
         is_shown: bool = True,
     ) -> int:
@@ -50,17 +99,17 @@ class Game(object):
         p1, p2 = self.game_env.players
         player1.set_player_id(p1)
         player2.set_player_id(p2)
+        self.set_player_symbol(start_player)
         players = {p1: player1, p2: player2}
         if is_shown:
-            self.graphic(self.game_env, player1.player_id, player2.player_id)
+            self.graphic(self.game_env, player1, player2)
         while True:
             current_player = self.game_env.get_current_player()
             player_in_turn = players[current_player]
             move = player_in_turn.get_action(self.game_env)
             self.game_env.step(move)
             if is_shown:
-                self.graphic(self.game_env, player1.player_id,
-                             player2.player_id)
+                self.graphic(self.game_env, player1, player2)
             end, winner = self.game_env.game_end()
             if end:
                 if is_shown:
@@ -70,12 +119,18 @@ class Game(object):
                         print('Game end. Tie')
                 return winner
 
-    def start_self_play(self, player, is_shown=0, temperature=1e-3):
+    def start_self_play(
+        self,
+        player: Player,
+        is_shown: bool = False,
+        temperature: float = 1e-3,
+    ):
         """start a self-play game using a MCTS player, reuse the search tree,
         and store the self-play data: (state, mcts_probs, z) for training."""
         self.game_env.reset()
         p1, p2 = self.game_env.players
         states, mcts_probs, current_players = [], [], []
+        self.set_player_symbol(start_player=0)
         while True:
             move, move_probs = player.get_action(self.game_env,
                                                  temperature=temperature,
@@ -103,3 +158,6 @@ class Game(object):
                     else:
                         print('Game end. Tie')
                 return winner, zip(states, mcts_probs, winners_z)
+
+    def __str__(self):
+        return 'Game'
