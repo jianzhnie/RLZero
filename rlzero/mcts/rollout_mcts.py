@@ -117,7 +117,13 @@ class RolloutMCTS(object):
 
 class RolloutPlayer(Player):
 
-    def __init__(self, n_playout=1000, c_puct=5, player_id=0, player_name=''):
+    def __init__(
+        self,
+        n_playout: int = 1000,
+        c_puct: float = 5,
+        player_id: int = 0,
+        player_name: str = '',
+    ) -> None:
         Player.__init__(self, player_id, player_name)
         self.mcts = RolloutMCTS(n_playout, c_puct)
 
@@ -134,5 +140,5 @@ class RolloutPlayer(Player):
             print('WARNING: the board is full')
 
     def __str__(self):
-        return 'RolloutPlayer {}{}'.format(self.get_player_id(),
-                                           self.get_player_name())
+        return 'RolloutPlayer, id: {}, name: {}.'.format(
+            self.get_player_id(), self.get_player_name())

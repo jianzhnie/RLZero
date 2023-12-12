@@ -100,25 +100,6 @@ class TreeNode(object):
             # we should change the perspective by the way of taking the negative
         self.update(leaf_value)
 
-    def select_action(self, temperature: float):
-        """Select action according to the visit count distribution and the
-        temperature."""
-        visit_counts = np.array(
-            [child._n_visits for child in self._children.values()])
-        actions = [action for action in self._children.keys()]
-        if temperature == 0:
-            action = actions[np.argmax(visit_counts)]
-        elif temperature == float('inf'):
-            action = np.random.choice(actions)
-        else:
-            # See paper appendix Data Generation
-            visit_count_distribution = visit_counts**(1 / temperature)
-            visit_count_distribution = visit_count_distribution / sum(
-                visit_count_distribution)
-            action = np.random.choice(actions, p=visit_count_distribution)
-
-        return action
-
     def is_leaf(self) -> bool:
         """Check if leaf node (i.e. no nodes below this have been expanded)."""
         return self._children == {}
