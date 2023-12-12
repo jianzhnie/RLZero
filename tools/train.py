@@ -11,8 +11,8 @@ sys.path.append('..')
 from games.game import Game
 from games.gomoku.alphazero_agent import AlphaZeroAgent
 from games.gomoku.gomoku_env import GomokuEnv
-from rlzero.mcts.alphazero_player import AlphaZeroPlayer
-from rlzero.mcts.rollout_player import RolloutPlayer
+from rlzero.mcts.alphazero_mcts import AlphaZeroPlayer
+from rlzero.mcts.rollout_mcts import RolloutPlayer
 
 
 class TrainPipeline:

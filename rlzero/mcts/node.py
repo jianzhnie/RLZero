@@ -58,6 +58,18 @@ class TreeNode(object):
                 if action not in self._children:
                     self._children[action] = TreeNode(self, prob)
 
+    def get_value(self, c_puct: float):
+        """Calculate and return the value for this node.
+
+        It is a combination of leaf evaluations Q, and this node's prior
+        adjusted for its visit count, u.
+        c_puct: a number in (0, inf) controlling the relative impact of
+            value Q, and prior probability P, on this node's score.
+        """
+        self._u = (c_puct * self._P * np.sqrt(self._parent._n_visits) /
+                   (1 + self._n_visits))
+        return self._Q + self._u
+
     def update(self, leaf_value: float) -> None:
         """Update node values from leaf evaluation.
 
@@ -87,18 +99,6 @@ class TreeNode(object):
             self._parent.update_recursive(-leaf_value)
             # we should change the perspective by the way of taking the negative
         self.update(leaf_value)
-
-    def get_value(self, c_puct: float):
-        """Calculate and return the value for this node.
-
-        It is a combination of leaf evaluations Q, and this node's prior
-        adjusted for its visit count, u.
-        c_puct: a number in (0, inf) controlling the relative impact of
-            value Q, and prior probability P, on this node's score.
-        """
-        self._u = (c_puct * self._P * np.sqrt(self._parent._n_visits) /
-                   (1 + self._n_visits))
-        return self._Q + self._u
 
     def select_action(self, temperature: float):
         """Select action according to the visit count distribution and the

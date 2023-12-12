@@ -52,14 +52,15 @@ class Game(object):
         player2.set_player_id(p2)
         players = {p1: player1, p2: player2}
         if is_shown:
-            self.graphic(self.game_env, player1.player, player2.player)
+            self.graphic(self.game_env, player1.player_id, player2.player_id)
         while True:
             current_player = self.game_env.get_current_player()
             player_in_turn = players[current_player]
             move = player_in_turn.get_action(self.game_env)
             self.game_env.step(move)
             if is_shown:
-                self.graphic(self.game_env, player1.player, player2.player)
+                self.graphic(self.game_env, player1.player_id,
+                             player2.player_id)
             end, winner = self.game_env.game_end()
             if end:
                 if is_shown:

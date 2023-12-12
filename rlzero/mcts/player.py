@@ -19,7 +19,7 @@ class Player(object):
         return self.player_name
 
     # abstract
-    def play(self, board, **kwargs):
+    def get_action(self, game_env, **kwargs):
         raise NotImplementedError
 
     def __str__(self):
