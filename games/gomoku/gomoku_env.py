@@ -24,11 +24,9 @@ class GomokuEnv(gymnasium.Env):
     ) -> None:
         self.width = width
         self.height = height
-        self.states = {}
         self.n_in_row = n_in_row
         self.players = [1, 2]  # player1 and player2
         self.start_player = start_player  # start player
-        self.info = {}
         self.action_space = Discrete(width * height)
         self.observation_space = Box(0, 1, shape=(4, width, height))
 
@@ -42,7 +40,8 @@ class GomokuEnv(gymnasium.Env):
         # once a move has been played, remove it right away
         self.availables = list(range(self.width * self.height))
         self.states = {}
-        self.last_action = -1
+        self.last_move = -1
+        self.info = {}
         return self.current_state()
 
     def step(self, action: int):
@@ -51,7 +50,7 @@ class GomokuEnv(gymnasium.Env):
         if action in self.availables:
             self.availables.remove(action)
         # change the current player
-        self.last_action = action
+        self.last_move = action
         done, winner = self.game_end()
         reward = 0
         if done:
@@ -110,8 +109,8 @@ class GomokuEnv(gymnasium.Env):
             square_state[1][move_oppo // self.width,
                             move_oppo % self.height] = 1.0
             # indicate the last move location
-            square_state[2][self.last_action // self.width,
-                            self.last_action % self.height] = 1.0
+            square_state[2][self.last_move // self.width,
+                            self.last_move % self.height] = 1.0
         if len(self.states) % 2 == 0:
             square_state[3][:, :] = 1.0
             # indicate the colour to play

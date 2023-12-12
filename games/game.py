@@ -20,9 +20,9 @@ class Game(object):
         self.visualTool = None
         if is_visualize:
             self.visualTool = VisualTool(
-                board_size=[self.board.width, self.board.height])
+                board_size=[self.game_env.width, self.game_env.height])
 
-    def set_player_symbol(self, start_player):
+    def set_player_symbol(self, start_player) -> None:
         """show board, set player symbol X OR O."""
         p1, p2 = self.game_env.players
         if self.game_env.players[start_player] == p1:
@@ -32,7 +32,10 @@ class Game(object):
             self.player1_symbol = 'O'
             self.player2_symbol = 'X'
 
-    def graphic(
+    def show(self) -> None:
+        self.visualTool.draw()
+
+    def graphic_visualTool(
         self,
         game_env: GomokuEnv,
         player1: Player,
@@ -42,7 +45,7 @@ class Game(object):
         loc = self.game_env.move_to_location(self.game_env.last_move)
         self.visualTool.graphic(loc[0], loc[1])
 
-    def graphic_command(
+    def graphic(
         self,
         game_env: GomokuEnv,
         player1: Player,
@@ -61,7 +64,7 @@ class Game(object):
         print('Player', player2, self.player2_symbol.rjust(3))
         print()
         for x in range(width):
-            print('{0:4}'.format(x), end='')
+            print('{0:8}'.format(x), end='')
         print('\r\n')
         for i in range(height - 1, -1, -1):
             print('{0:4d}'.format(i), end='')
@@ -69,17 +72,9 @@ class Game(object):
                 loc = i * width + j
                 p = game_env.states.get(loc, -1)
                 if p == player1_id:
-                    if loc == game_env.last_move:
-                        print(('[%s]' % (self.player1_symbol)).center(4),
-                              end='')
-                    else:
-                        print(self.player1_symbol.center(4), end='')
-                if p == player2_id:
-                    if loc == game_env.last_move:
-                        print(('[%s]' % (self.player2_symbol)).center(4),
-                              end='')
-                    else:
-                        print(self.player2_symbol.center(4), end='')
+                    print(self.player1_symbol.center(8), end='')
+                elif p == player2_id:
+                    print(self.player2_symbol.center(8), end='')
                 else:
                     print('_'.center(8), end='')
             print('\r\n\r\n')

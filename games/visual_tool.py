@@ -28,8 +28,12 @@ class VisualTool:
             for j in range(board_size[1]):
                 self.chessdata[i].append(0)
 
-    def set_player(self, player1: Player, player2: Player,
-                   first_player: 0) -> None:
+    def set_player(
+        self,
+        player1: Player,
+        player2: Player,
+        first_player: int = 0,
+    ) -> None:
         if first_player == 1:
             player1, player2 = player2, player1  # change
         player1.set_player_id(1)
