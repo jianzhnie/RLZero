@@ -47,8 +47,7 @@ class GomokuEnv(gymnasium.Env):
     def step(self, action: int):
         """Update the board."""
         self.states[action] = self.current_player
-        if action in self.availables:
-            self.availables.remove(action)
+        self.availables.remove(action)
         # change the current player
         self.last_move = action
         done, winner = self.game_end()

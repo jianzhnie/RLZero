@@ -4,23 +4,22 @@ import sys
 
 sys.path.append('..')
 from games.game import Game
-from games.gomoku.alphazero_agent import AlphaZeroAgent
 from games.gomoku.gomoku_env import GomokuEnv
-from rlzero.mcts.alphazero_mcts import AlphaZeroPlayer
 from rlzero.mcts.rollout_mcts import RolloutPlayer
 
 
 def main():
     # 初始化棋盘
-    board = GomokuEnv()
+    board = GomokuEnv(3, 3, 3)
     game = Game(board)
     # 加载模型
-    alphazero_agent = AlphaZeroAgent(board.width, board.height)
-    alphazero_plyer = AlphaZeroPlayer(alphazero_agent.policy_value_fn)
+    # alphazero_agent = AlphaZeroAgent(board.width, board.height)
+    # alphazero_plyer = AlphaZeroPlayer(alphazero_agent.policy_value_fn)
+    mcts_player1 = RolloutPlayer(n_playout=2000, player_name='MCTS_1')
     # 两个AI对打
-    mcts_player = RolloutPlayer()
+    mcts_player2 = RolloutPlayer(n_playout=1000, player_name='MCTS_2')
     # 开始对打
-    game.start_play(mcts_player, alphazero_plyer, start_player=0)
+    game.start_play(mcts_player1, mcts_player2, start_player=0)
 
 
 if __name__ == '__main__':

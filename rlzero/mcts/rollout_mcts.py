@@ -14,13 +14,11 @@ class RolloutMCTS(object):
         n_playout: int = 1000,
         c_puct: float = 5.0,
         n_limit: int = 1000,
-        is_selfplay: bool = False,
     ) -> None:
         self._root = TreeNode(parent=None, prior_p=1.0)
         self.n_playout = n_playout
         self._c_puct = c_puct
         self.n_limit = n_limit
-        self._is_selfplay = is_selfplay
 
     def _playout(self, game_env):
         """Run a single search from the root to the leaf, getting a value at
@@ -41,7 +39,7 @@ class RolloutMCTS(object):
         # Check for end of game
         is_end, _ = game_env.game_end()
         if not is_end:
-            node.expand(action_probs, add_noise=self._is_selfplay)
+            node.expand(action_probs)
         # MCTS of the [EXPAND] step
         # Evaluate the leaf using a network which outputs a list of (action, probability)
         # tuples p and also a score v in [-1, 1] for the current player.
@@ -124,7 +122,7 @@ class RolloutPlayer(Player):
         player_id: int = 0,
         player_name: str = '',
     ) -> None:
-        Player.__init__(self, player_id, player_name)
+        super().__init__()
         self.mcts = RolloutMCTS(n_playout, c_puct)
 
     def reset_player(self) -> None:
@@ -134,7 +132,7 @@ class RolloutPlayer(Player):
         sensible_moves = game_env.availables
         if len(sensible_moves) > 0:
             move = self.mcts.simulate(game_env)
-            self.mcts.update_with_move(move)
+            self.mcts.update_with_move(-1)
             return move
         else:
             print('WARNING: the board is full')

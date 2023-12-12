@@ -20,9 +20,9 @@ class AlphaZeroMCTS(object):
     def __init__(
         self,
         policy_value_fn: Callable,
-        n_playout: int = 10000,
+        n_playout: int = 1000,
         c_puct: float = 5,
-        is_selfplay: bool = True,
+        add_noise: bool = False,
     ) -> None:
         """
         policy_value_fn: a function that takes in a board state and outputs
@@ -37,7 +37,7 @@ class AlphaZeroMCTS(object):
         self.policy_value_fn = policy_value_fn
         self.n_playout = n_playout
         self._c_puct = c_puct
-        self._is_selfplay = is_selfplay
+        self.add_noise = add_noise
 
     def _playout(self, game_env):
         """Run a single playout from the root to the leaf, getting a value at
@@ -59,7 +59,7 @@ class AlphaZeroMCTS(object):
         action_probs, leaf_value = self.policy_value_fn(game_env)
         is_end, winner = game_env.game_end()
         if not is_end:
-            node.expand(action_probs)
+            node.expand(action_probs, add_noise=self.add_noise)
         else:
             if winner == -1:  # tie
                 leaf_value = 0.0
@@ -111,20 +111,22 @@ class AlphaZeroPlayer(Player):
 
     def __init__(
         self,
-        policy_value_fn,
-        n_playout: int = 2000,
+        policy_value_fn: Callable,
+        n_playout: int = 1000,
         c_puct: float = 5,
         is_selfplay: bool = False,
-        add_noise: bool = False,
+        add_noise: bool = None,
     ) -> None:
+        super().__init__()
+
+        self.is_selfplay = is_selfplay
+        self.add_noise = is_selfplay if add_noise is None else add_noise
         self.mcts = AlphaZeroMCTS(
             policy_value_fn,
-            c_puct=c_puct,
             n_playout=n_playout,
-            is_selfplay=is_selfplay,
+            c_puct=c_puct,
+            add_noise=self.add_noise,
         )
-        self.is_selfplay = is_selfplay
-        self._add_noise = is_selfplay if add_noise is None else add_noise
 
     def reset_player(self):
         """reset, reconstructing the MCTS Tree for next simulation."""
@@ -151,6 +153,7 @@ class AlphaZeroPlayer(Player):
                 # with the default temp=1e-3, it is almost equivalent
                 # to choosing the move with the highest prob
                 # reset the root node
+                move = np.random.choice(acts, p=probs)
                 self.mcts.update_with_move(-1)
 
             if return_prob:
