@@ -25,7 +25,7 @@ class GomokuEnv(BaseEnv):
         super().__init__()
         self.board_size = board_size
         self.n_in_row = n_in_row
-        self.players = [1, 2]  # player1 and player2
+        self.players = [0, 1]  # player1 and player2
         self.start_player_idx = start_player_idx  # start player
         self._current_player = self.players[self.start_player_idx]
         self._leagel_actions = list(range(self.board_size * self.board_size))
@@ -202,6 +202,24 @@ class GomokuEnv(BaseEnv):
             return True, -1
         return False, -1
 
+    def is_terminal(self):
+        """Check whether the game is ended or not."""
+        game_end, winner = self.game_end_winner()
+        return game_end
+
+    def returns(self):
+        """Check whether the game is ended or not."""
+        win, winner = self.has_a_winner()
+        if winner == 1:
+            return [1, -1]
+        elif winner == 2:
+            return [-1, 1]
+        elif winner == -1 and win:
+            return [0, 0]
+        elif winner == -1 and not win:
+            return [0, 0]
+        return [0, 0]
+
     def move_to_location(self, move: int) -> List:
         """3*3 board's moves like:
 
@@ -243,8 +261,14 @@ class GomokuEnv(BaseEnv):
         col = move % self.board_size + 1
         return f'Play row {row}, column {col}'
 
+    def max_utility(self):
+        return 1
+
     def current_player(self):
         return self._current_player
+
+    def legal_actions(self, player):
+        return self._leagel_actions
 
     def current_player_index(self):
         """
