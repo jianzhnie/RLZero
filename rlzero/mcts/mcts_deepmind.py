@@ -1,7 +1,7 @@
 """Monte-Carlo Tree Search algorithm for game play."""
 
 import math
-from typing import Any, List
+from typing import Any, List, Tuple
 
 import numpy as np
 
@@ -16,11 +16,11 @@ class Evaluator(object):
     winning the game. It returns the evaluation from all player's perspectives.
     """
 
-    def evaluate(self, state):
+    def evaluate(self, game_env):
         """Returns evaluation on given state."""
         raise NotImplementedError
 
-    def prior(self, state):
+    def prior(self, game_env):
         """Returns a probability for each legal action in the given state."""
         raise NotImplementedError
 
@@ -240,7 +240,10 @@ class MCTSBot:
                 # For a new node, initialize its state, then choose a child as normal.
                 legal_actions = self.evaluator.prior(working_state_env)
                 if current_node is root and self.add_exploration_noise:
-                    epsilon, alpha = self.dirichlet_noise_epsilon, self.dirichlet_noide_alpha
+                    epsilon, alpha = (
+                        self.dirichlet_noise_epsilon,
+                        self.dirichlet_noide_alpha,
+                    )
                     noise = self._random_state.dirichlet([alpha] *
                                                          len(legal_actions))
                     legal_actions = [(a, (1 - epsilon) * p + epsilon * n)
@@ -267,7 +270,10 @@ class MCTSBot:
 
         return visit_path, working_state_env
 
-    def _add_exploration_noise(self, leagel_actions: List[int]) -> None:
+    def _add_exploration_noise(
+        self,
+        leagel_actions: List[Tuple[int, float]],
+    ) -> List[Tuple[int, float]]:
         """
         Overview:
             Add exploration noise.
@@ -275,18 +281,19 @@ class MCTSBot:
             - node (:obj:`Class Node`): Current node.
         """
         # Get a list of actions corresponding to the child nodes.
-        actions = list(leagel_actions)
+        leagel_actions = list(leagel_actions)
+        # Compute the weight of the exploration noise.
         epsilon = self.dirichlet_noise_epsilon
         # Create a list of alpha values for Dirichlet noise.
-        alpha = [self.dirichlet_noide_alpha] * len(actions)
+        alpha = [self.dirichlet_noide_alpha] * len(leagel_actions)
         # Generate Dirichlet noise using the alpha values.
         dirichlet_noise = np.random.dirichlet(alpha)
-        noise_action_probs = []
+        noise_action_policy = []
         # Update the prior probability of each child node with the exploration noise.
-        for (action, prob), noise in zip(actions, dirichlet_noise):
+        for (action, prob), noise in zip(leagel_actions, dirichlet_noise):
             noise_prob = epsilon * noise + (1 - epsilon) * prob
-            noise_action_probs.append((action, noise_prob))
-        return noise_action_probs
+            noise_action_policy.append((action, noise_prob))
+        return noise_action_policy
 
     def mcts_search(self, game_env: BaseEnv):
         """A vanilla Monte-Carlo Tree Search algorithm.
