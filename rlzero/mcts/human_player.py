@@ -4,10 +4,10 @@ from .player import Player
 class HumanPlayer(Player):
 
     def __init__(self, player_id=0, player_name=''):
-        Player.__init__(self, player_id, player_name)
+        super().__init__(player_id, player_name)
         self.can_click = True  # can click the board
 
-    def get_action(self, game_env):
+    def get_action(self, game_env, **kwargs):
         """play based on human input."""
         try:
             location = input('Your move: ')
