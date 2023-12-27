@@ -19,11 +19,9 @@ class TrainPipeline:
 
     def __init__(self):
         # params of the board and the game
-        self.board_width = 6
-        self.board_height = 6
+        self.board_size = 6
         self.n_in_row = 4
-        self.board = GomokuEnv(width=self.board_width,
-                               height=self.board_height,
+        self.board = GomokuEnv(board_size=self.board_size,
                                n_in_row=self.n_in_row)
         self.game = Game(self.board)
         # training params
@@ -48,8 +46,7 @@ class TrainPipeline:
         # the opponent to evaluate the trained policy
         self.pure_mcts_playout_num = 100
         self.alphazero_agent: AlphaZeroAgent = AlphaZeroAgent(
-            self.board_width,
-            self.board_height,
+            self.board_size,
             device=self.device,
         )
 
@@ -71,8 +68,8 @@ class TrainPipeline:
                 equi_state = np.array([np.rot90(s, i) for s in state])
                 equi_mcts_prob = np.rot90(
                     np.flipud(
-                        mcts_porb.reshape(self.board_height,
-                                          self.board_width)), i)
+                        mcts_porb.reshape(self.board_size, self.board_size)),
+                    i)
                 extend_data.append(
                     (equi_state, np.flipud(equi_mcts_prob).flatten(), winner))
                 # flip horizontally
