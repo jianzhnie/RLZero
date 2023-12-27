@@ -99,13 +99,12 @@ class Game(object):
         if is_shown:
             self.graphic(self.game_env, player1, player2)
         while True:
-            current_player = self.game_env.get_current_player()
-            player_in_turn = players[current_player]
+            player_in_turn = players[self.game_env.current_player()]
             move = player_in_turn.get_action(self.game_env)
             self.game_env.step(move)
             if is_shown:
                 self.graphic(self.game_env, player1, player2)
-            end, winner = self.game_env.game_end()
+            end, winner = self.game_env.game_end_winner()
             if end:
                 if is_shown:
                     if winner != -1:
@@ -133,12 +132,12 @@ class Game(object):
             # store the data
             states.append(self.game_env.current_state())
             mcts_probs.append(move_probs)
-            current_players.append(self.game_env.current_player)
+            current_players.append(self.game_env.current_player())
             # perform a move
             self.game_env.step(move)
             if is_shown:
                 self.graphic(self.game_env, p1, p2)
-            end, winner = self.game_env.game_end()
+            end, winner = self.game_env.game_end_winner()
             if end:
                 # winner from the perspective of the current player of each state
                 winners_z = np.zeros(len(current_players))
