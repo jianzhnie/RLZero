@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 from typing import List, Tuple
+from uu import Error
 
 import gymnasium
 import numpy as np
@@ -20,25 +21,29 @@ class GomokuEnv(gymnasium.Env):
         width: int = 8,
         height: int = 8,
         n_in_row: int = 5,
-        start_player: int = 0,
+        start_player_idx: int = 0,
     ) -> None:
         self.width = width
         self.height = height
         self.n_in_row = n_in_row
         self.players = [1, 2]  # player1 and player2
-        self.start_player = start_player  # start player
+        self.start_player_idx = start_player_idx  # start player
+        self._current_player = self.players[self.start_player_idx]
         self.action_space = Discrete(width * height)
         self.observation_space = Box(0, 1, shape=(4, width, height))
+        self._leagel_actions = list(range(self.width * self.height))
 
-    def reset(self) -> None:
+    def reset(self, start_player_idx: int = 0) -> None:
         """init the board and set some variables."""
         if self.width < self.n_in_row or self.height < self.n_in_row:
-            raise Exception(
+            raise Error(
                 f'Board width and height can not less than {self.n_in_row}')
-        self.current_player = self.players[self.start_player]  # start player
+        self.start_player_idx = start_player_idx
+        self._current_player = self.players[start_player_idx]
+        # start player
         # keep available moves in a list
         # once a move has been played, remove it right away
-        self.availables = list(range(self.width * self.height))
+        self._leagel_actions = list(range(self.width * self.height))
         self.states = {}
         self.last_move = -1
         self.info = {}
@@ -46,24 +51,31 @@ class GomokuEnv(gymnasium.Env):
 
     def step(self, action: int):
         """Update the board."""
-        self.states[action] = self.current_player
-        self.availables.remove(action)
+        assert (action in self._leagel_actions), print(
+            f'You input illegal action: {action}, the legal_actions are {self._leagel_actions}.'
+        )
+
+        self.states[action] = self._current_player
+        self._leagel_actions.remove(action)
         # change the current player
         self.last_move = action
-        done, winner = self.game_end()
+        done, winner = self.get_done_winner()
         reward = 0
         if done:
-            if winner == self.current_player:
+            if winner == self._current_player:
                 reward = 1
             else:
                 reward = -1
 
-        self.current_player = (self.players[0] if self.current_player
-                               == self.players[1] else self.players[1])
+        self._current_player = (self.players[0] if self._current_player
+                                == self.players[1] else self.players[1])
         obs = self.current_state()
         return obs, reward, done, self.info
 
-    def render(self, mode='human', start_player=0):
+    def leagel_actions(self):
+        return self._leagel_actions
+
+    def render(self):
         width = self.width
         height = self.height
         p1, p2 = self.players
@@ -99,8 +111,8 @@ class GomokuEnv(gymnasium.Env):
             # then np.array and get
             # moves = np.array([1, 2, 3])
             # players = np.array([1, 1, 2])
-            move_curr = moves[players == self.current_player]
-            move_oppo = moves[players != self.current_player]
+            move_curr = moves[players == self._current_player]
+            move_oppo = moves[players != self._current_player]
 
             # to construct the binary feature planes as alphazero did
             square_state[0][move_curr // self.width,
@@ -115,7 +127,7 @@ class GomokuEnv(gymnasium.Env):
             # indicate the colour to play
         return square_state[:, ::-1, :]
 
-    def has_a_winner(self) -> Tuple[bool, int]:
+    def get_done_winner(self) -> Tuple[bool, int]:
         """Judge if there's a 5-in-a-row, and which player if so.
 
         Returns:
@@ -126,7 +138,7 @@ class GomokuEnv(gymnasium.Env):
         states = self.states
         n = self.n_in_row
         # 棋盘上所有棋子的位置
-        moved = list(set(range(width * height)) - set(self.availables))
+        moved = list(set(range(width * height)) - set(self._leagel_actions))
         # 当前所有棋子数量不足以获胜
         if len(moved) < self.n_in_row * 2 - 1:
             return False, -1
@@ -164,12 +176,36 @@ class GomokuEnv(gymnasium.Env):
 
         return False, -1
 
-    def game_end(self) -> Tuple[bool, int]:
+    def get_done_reward(self):
+        """
+        Overview:
+             Check if the game is over and what is the reward in the perspective of player 1.
+             Return 'done' and 'reward'.
+        Returns:
+            - outputs (:obj:`Tuple`): Tuple containing 'done' and 'reward',
+                - if player 1 win,     'done' = True, 'reward' = 1
+                - if player 2 win,     'done' = True, 'reward' = -1
+                - if draw,             'done' = True, 'reward' = 0
+                - if game is not over, 'done' = False,'reward' = None
+        """
+        done, winner = self.get_done_winner()
+        if winner == 1:
+            reward = 1
+        elif winner == 2:
+            reward = -1
+        elif winner == -1 and done:
+            reward = 0
+        elif winner == -1 and not done:
+            # episode is not done
+            reward = None
+        return done, reward
+
+    def game_end_winner(self):
         """Check whether the game is ended or not."""
-        end, winner = self.has_a_winner()
-        if end:
+        done, winner = self.get_done_winner()
+        if done:
             return True, winner
-        elif not len(self.availables):
+        elif not len(self._leagel_actions):
             return True, -1
         return False, -1
 
@@ -201,8 +237,28 @@ class GomokuEnv(gymnasium.Env):
             return -1
         return move
 
-    def get_current_player(self) -> int:
-        return self.current_player
+    def action_to_string(self, move: int):
+        """
+        Overview:
+            Convert an action number to a string representing the action.
+        Arguments:
+            - action_number: an integer from the action space.
+        Returns:
+            - String representing the action.
+        """
+        row = move // self.width + 1
+        col = move % self.width + 1
+        return f'Play row {row}, column {col}'
+
+    def current_player(self):
+        return self._current_player
+
+    def current_player_index(self):
+        """
+        current_player_index = 0, current_player = 1
+        current_player_index = 1, current_player = 2
+        """
+        return 0 if self._current_player == 1 else 1
 
     def __str__(self):
         return 'Gomoku Board'
