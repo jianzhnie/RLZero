@@ -3,7 +3,6 @@ Foundation/PettingZoo) to the BaseEnv interface."""
 from __future__ import annotations
 
 import os
-import sys
 from collections import namedtuple
 
 import gymnasium
@@ -350,43 +349,19 @@ class GoEnv(AECEnv, EzPickle):
 
         return self.next_legal_moves
 
+    def get_done_reward(self):
+        done = self.terminations[self.agent_selection]
+        reward = self.rewards[self.agent_selection]
+        return done, reward
+
     def returns(self):
         """Total reward for each player over the course of the game so far."""
-        return self.rewards
+        reward = self.rewards[self.agent_selection]
+        return reward
 
     def random_action(self):
         action_list = self.legal_actions()
         return np.random.choice(action_list)
-
-    def bot_action(self):
-        # TODO
-        pass
-
-    def human_to_action(self):
-        """
-        Overview:
-            For multiplayer games, ask the user for a legal action
-            and return the corresponding action number.
-        Returns:
-            An integer from the action space.
-        """
-        # print(self.board)
-        while True:
-            try:
-                print(
-                    f'Current available actions for the player {self.to_play()} are:{self.legal_moves()}'
-                )
-                choice = int(
-                    input(
-                        f'Enter the index of next move for the player {self.to_play()}: '
-                    ))
-                if choice in self.legal_moves():
-                    break
-            except KeyboardInterrupt:
-                sys.exit(0)
-            except Exception:
-                print('Wrong input, try again')
-        return choice
 
     def seed(self, seed: int, dynamic_seed: bool = True) -> None:
         self._seed = seed
