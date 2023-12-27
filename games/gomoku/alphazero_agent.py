@@ -13,15 +13,13 @@ class AlphaZeroAgent(object):
 
     def __init__(
         self,
-        board_width: int,
-        board_height: int,
+        board_size: int,
         learning_rate: float = 0.001,
         weight_decay: float = 1e-4,
         device: str = 'cpu',
     ) -> None:
-        self.board_width = board_width
-        self.board_height = board_height
-        self.policy_value_net = PolicyValueNet(board_width, board_height)
+        self.board_size = board_size
+        self.policy_value_net = PolicyValueNet(board_size)
         self.policy_value_net.to(device)
         self.optimizer = optim.Adam(
             self.policy_value_net.parameters(),
@@ -38,7 +36,7 @@ class AlphaZeroAgent(object):
         """
         legal_positions = game_env.leagel_actions()
         current_state = game_env.current_state().reshape(
-            -1, 4, self.board_width, self.board_height)
+            -1, 4, self.board_size, self.board_size)
         current_state = np.ascontiguousarray(current_state)
         current_state = torch.from_numpy(current_state).float().to(self.device)
         log_act_probs, value = self.policy_value_net(current_state)
