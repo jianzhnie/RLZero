@@ -1,9 +1,9 @@
 import sys
 
-from .go_env import GoEnv
+from go_env import GoEnv
 
 sys.path.append('../../')
-from rlzero.mcts.mcts_bot import MCTSBot
+from rlzero.mcts.mcts_deepmind import MCTSBot
 
 
 def test_go_mctsbot_vs_mctsbot(num_simulations=50):
@@ -29,9 +29,11 @@ def test_go_mctsbot_vs_mctsbot(num_simulations=50):
             action = None
         else:
             if player_index == 0:
-                action = mcts_player_0.get_actions()
+                action = mcts_player_0.get_actions(env,
+                                                   player_index=player_index)
             else:
-                action = mcts_player_1.get_actions()
+                action = mcts_player_1.get_actions(env,
+                                                   player_index=player_index)
         env.step(action)
     env.close()
 
