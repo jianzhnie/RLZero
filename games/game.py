@@ -19,8 +19,9 @@ class Game(object):
         self.game_env = game_env
         self.visualTool = None
         if is_visualize:
-            self.visualTool = VisualTool(
-                board_size=[self.game_env.width, self.game_env.height])
+            self.visualTool = VisualTool(board_size=[
+                self.game_env.board_size, self.game_env.board_size
+            ])
 
     def set_player_symbol(self, start_player) -> None:
         """show board, set player symbol X OR O."""
@@ -52,9 +53,7 @@ class Game(object):
         player2: Player,
     ):
         """Draw the board and show game info."""
-        width = game_env.width
-        height = game_env.height
-
+        board_size = game_env.board_size
         player1_id = player1 if isinstance(player1,
                                            int) else player1.get_player_id()
         player2_id = player2 if isinstance(player2,
@@ -63,13 +62,13 @@ class Game(object):
         print('Player', player1, self.player1_symbol.rjust(3))
         print('Player', player2, self.player2_symbol.rjust(3))
         print()
-        for x in range(width):
+        for x in range(board_size):
             print('{0:8}'.format(x), end='')
         print('\r\n')
-        for i in range(height - 1, -1, -1):
+        for i in range(board_size - 1, -1, -1):
             print('{0:4d}'.format(i), end='')
-            for j in range(width):
-                loc = i * width + j
+            for j in range(board_size):
+                loc = i * board_size + j
                 p = game_env.states.get(loc, -1)
                 if p == player1_id:
                     print(self.player1_symbol.center(8), end='')
