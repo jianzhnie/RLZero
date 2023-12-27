@@ -338,9 +338,6 @@ class GoEnv(AECEnv, EzPickle):
             self.infos[name] = {'legal_moves': []}
 
     def legal_actions(self):
-        pass
-
-    def legal_moves(self):
         if self._go.is_game_over():
             self.terminations = self._convert_to_dict(
                 [True for _ in range(self.num_agents)])
@@ -353,8 +350,12 @@ class GoEnv(AECEnv, EzPickle):
 
         return self.next_legal_moves
 
+    def returns(self):
+        """Total reward for each player over the course of the game so far."""
+        return self.rewards
+
     def random_action(self):
-        action_list = self.legal_moves()
+        action_list = self.legal_actions()
         return np.random.choice(action_list)
 
     def bot_action(self):
