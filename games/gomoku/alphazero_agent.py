@@ -36,7 +36,7 @@ class AlphaZeroAgent(object):
         output: a list of (action, probability) tuples for each available
         action and the score of the board state
         """
-        legal_positions = game_env.availables
+        legal_positions = game_env.leagel_actions()
         current_state = game_env.current_state().reshape(
             -1, 4, self.board_width, self.board_height)
         current_state = np.ascontiguousarray(current_state)
