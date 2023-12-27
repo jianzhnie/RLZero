@@ -16,11 +16,9 @@ from rlzero.mcts.rollout_mcts import RolloutPlayer
 
 def mcts_vs_mcts():
     # 初始化棋盘
-    board = GomokuEnv(3, 3, 3)
+    board = GomokuEnv(board_size=3, n_in_row=3, start_player_idx=0)
     game = Game(board)
     # 加载模型
-    # alphazero_agent = AlphaZeroAgent(board.width, board.height)
-    # alphazero_plyer = AlphaZeroPlayer(alphazero_agent.policy_value_fn)
     mcts_player1 = RolloutPlayer(n_playout=2000, player_name='MCTS_1')
     # 两个AI对打
     mcts_player2 = RolloutPlayer(n_playout=1000, player_name='MCTS_2')
@@ -30,7 +28,7 @@ def mcts_vs_mcts():
 
 def human_vs_mcts():
     # 初始化棋盘
-    board = GomokuEnv(3, 3, 3)
+    board = GomokuEnv(board_size=3, n_in_row=3, start_player_idx=0)
     game = Game(board)
     mcts_player1 = HumanPlayer(player_name='Human')
     mcts_player2 = RolloutPlayer(n_playout=1000, player_name='MCTS')
@@ -43,7 +41,7 @@ def alphazero_vs_mcts():
     board = GomokuEnv(3, 3, 3)
     game = Game(board)
     # 加载模型
-    alphazero_agent = AlphaZeroAgent(board.width, board.height)
+    alphazero_agent = AlphaZeroAgent(board_size=3)
     alphazero_plyer = AlphaZeroPlayer(alphazero_agent.policy_value_fn,
                                       n_playout=1,
                                       player_name='AlphaZero')
