@@ -10,6 +10,11 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 - https://github.com/google-deepmind/open_spiel
 - https://github.com/sotetsuk/pgx.git
 - https://github.com/Unity-Technologies/ml-agents
+- https://github.com/opendilab/LightZero
+
+### MCTS
+
+https://github.com/masouduut94/MCTS-agent-python
 
 ### AlpahZero
 
@@ -54,3 +59,19 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 - [AlphaZero实现Connect4游戏](https://aistudio.baidu.com/projectdetail/2253753?channelType=0&channel=0)
 
 - [极简MuZero算法实践——Paddle2.0版本](https://aistudio.baidu.com/projectdetail/1448859?channelType=0&channel=0)
+
+### MCTS 的前沿动态
+
+[如何追踪 MCTS 的前沿动态？（1）](https://zhuanlan.zhihu.com/p/633462726)
+[如何追踪 MCTS 的前沿动态？（2）](https://zhuanlan.zhihu.com/p/635570518)
+[如何追踪 MCTS 的前沿动态？（3）](https://zhuanlan.zhihu.com/p/641713866)
+[如何追踪 MCTS 的前沿动态？（4）](https://zhuanlan.zhihu.com/p/643382412)
+
+______________________________________________________________________
+
+[MCTS + RL 系列技术博客（1）：AlphaZero](https://zhuanlan.zhihu.com/p/650009275)
+[MCTS + RL 系列技术博客（2）：MuZero](https://zhuanlan.zhihu.com/p/654059774)
+[MCTS + RL 系列技术博客（3）：Sampled MuZero](https://zhuanlan.zhihu.com/p/657484426)
+[MCTS + RL 系列技术博客（4）：EfficientZero](https://zhuanlan.zhihu.com/p/662943334)
+[MCTS + RL 系列技术博客（5）：Stochastic MuZero](https://zhuanlan.zhihu.com/p/664542805)
+[MCTS + RL 系列技术博客（6）：浅析 MCTS 算法原理演进史](https://zhuanlan.zhihu.com/p/670885213)
