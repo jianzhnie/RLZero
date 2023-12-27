@@ -1,6 +1,7 @@
 """Monte-Carlo Tree Search algorithm for game play."""
 
 import math
+from abc import ABC
 from typing import Any, List, Tuple
 
 import numpy as np
@@ -35,33 +36,36 @@ class RandomRolloutEvaluator(Evaluator):
 
     def __init__(self, n_rollouts: int = 1, random_state: Any = None):
         self.n_rollouts = n_rollouts
-        self._random_state = random_state or np.random.RandomState()
+        self._random_state: np.random.RandomState = (random_state or
+                                                     np.random.RandomState())
 
     def evaluate(self, game_env: BaseEnv):
         """Returns evaluation on given state."""
         result = None
         for _ in range(self.n_rollouts):
-            working_state = game_env.clone()
-            while not working_state.is_terminal():
-                action = self._random_state.choice(
-                    working_state.legal_actions(game_env.current_player()))
-                working_state.step(action)
-            returns = np.array(working_state.returns())
+            working_state_env = game_env.clone()
+            while not working_state_env.is_terminal():
+                legal_actions = working_state_env.legal_actions(
+                    game_env.current_player())
+                action = self._random_state.choice(legal_actions)
+                working_state_env.step(action)
+            returns = np.array(working_state_env.returns())
             result = returns if result is None else result + returns
 
         return result / self.n_rollouts
 
-    def prior(self, game_env: BaseEnv):
+    def prior(self, game_env: BaseEnv) -> List[Tuple[int, float]]:
         """Returns equal probability for all actions."""
         legal_actions = game_env.legal_actions(game_env.current_player())
         return [(action, 1.0 / len(legal_actions)) for action in legal_actions]
 
 
-class SearchNode(object):
+class SearchNode(ABC):
     """A node in the search tree.
 
-    A SearchNode represents a state and possible continuations from it. Each child
-    represents a possible action, and the expected result from doing so.
+    This is an abstract base class that outlines the fundamental methods for a
+    Monte Carlo Tree node. A SearchNode represents a state and possible continuations
+    from it. Each child represents a possible action, and the expected result from doing so.
 
     Attributes:
       action: The action from the parent node's perspective. Not important for the
@@ -88,7 +92,7 @@ class SearchNode(object):
         'children',
     ]
 
-    def __init__(self, action, player, prior):
+    def __init__(self, action: int, player: int, prior: float):
         self.action = action
         self.player = player
         self.prior = prior
@@ -97,7 +101,13 @@ class SearchNode(object):
         self.outcome = None
         self.children = []
 
-    def uct_value(self, parent_explore_count, uct_c):
+    def expand(self):
+        pass
+
+    def backpropagate(self, reward):
+        pass
+
+    def uct_value(self, parent_explore_count: int, uct_c: float) -> float:
         """Returns the UCT value of child."""
         if self.outcome is not None:
             return self.outcome[self.player]
@@ -108,7 +118,7 @@ class SearchNode(object):
         return self.total_reward / self.explore_count + uct_c * math.sqrt(
             math.log(parent_explore_count) / self.explore_count)
 
-    def puct_value(self, parent_explore_count, uct_c):
+    def puct_value(self, parent_explore_count: int, uct_c: float) -> float:
         """Returns the PUCT value of child."""
         if self.outcome is not None:
             return self.outcome[self.player]
@@ -117,7 +127,7 @@ class SearchNode(object):
                 ) + uct_c * self.prior * math.sqrt(parent_explore_count) / (
                     self.explore_count + 1)
 
-    def sort_key(self):
+    def sort_key(self) -> Tuple[float, int, float]:
         """Returns the best action from this node, either proven or most
         visited.
 
@@ -137,9 +147,22 @@ class SearchNode(object):
             self.total_reward,
         )
 
-    def best_child(self):
+    def best_child(self) -> 'SearchNode':
         """Returns the best child in order of the sort key."""
         return max(self.children, key=SearchNode.sort_key)
+
+    def rollout_policy(self, possible_actions):
+        """
+        Overview:
+            This method implements the rollout policy for a node during the Monte Carlo Tree Search.
+            The rollout policy is used to determine the action taken during the simulation phase of the MCTS.
+            In this case, the policy is to randomly choose an action from the list of possible actions.
+        Arguments:
+            - possible_actions(:obj:`list`): A list of all possible actions that can be taken from the current state.
+        Return:
+            - action(:obj:`int`): A randomly chosen action from the list of possible actions.
+        """
+        return possible_actions[np.random.randint(len(possible_actions))]
 
 
 class MCTSBot:
@@ -157,8 +180,7 @@ class MCTSBot:
         dirichlet_epsilon: float = None,
         solve: bool = True,
         verbose: bool = False,
-        dont_return_chance_node: bool = False,
-    ):
+    ) -> None:
         """Initializes a MCTS Search algorithm in the form of a bot.
 
         In multiplayer games, or non-zero-sum games, the players will play the
@@ -181,8 +203,6 @@ class MCTSBot:
           verbose: Whether to print information about the search tree before
             returning the action. Useful for confirming the search is working
             sensibly.
-          dont_return_chance_node: If true, do not stop expanding at chance nodes.
-            Enabled for AlphaZero.
 
         Raises:
           ValueError: if the game type isn't supported.
@@ -202,21 +222,26 @@ class MCTSBot:
         self.verbose = verbose
         self.solve = solve
         self._random_state = np.random.RandomState()
-        self.dont_return_chance_node = dont_return_chance_node
 
-    def step_with_policy(self, state):
+    def step_with_policy(
+            self, game_env: BaseEnv) -> Tuple[List[Tuple[int, float]], int]:
         """Returns bot's policy and action at given state."""
-        root: SearchNode = self.mcts_search(state)
+        root: SearchNode = self.mcts_search(game_env)
         best: SearchNode = root.best_child()
         mcts_action = best.action
+
+        legal_actions = game_env.legal_actions(game_env.current_player())
         policy = [(action, (1.0 if action == mcts_action else 0.0))
-                  for action in state.legal_actions(state.current_player())]
+                  for action in legal_actions]
+
         return policy, mcts_action
 
-    def step(self, state):
+    def step(self, state) -> int:
         return self.step_with_policy(state)[1]
 
-    def _apply_tree_policy(self, root: SearchNode, game_env: BaseEnv):
+    def _apply_tree_policy(
+            self, root: SearchNode,
+            game_env: BaseEnv) -> Tuple[List[SearchNode], BaseEnv]:
         """Applies the UCT policy to play the game until reaching a leaf node.
 
         A leaf node is defined as a node that is terminal or has not been evaluated
@@ -240,15 +265,7 @@ class MCTSBot:
                 # For a new node, initialize its state, then choose a child as normal.
                 legal_actions = self.evaluator.prior(working_state_env)
                 if current_node is root and self.add_exploration_noise:
-                    epsilon, alpha = (
-                        self.dirichlet_noise_epsilon,
-                        self.dirichlet_noide_alpha,
-                    )
-                    noise = self._random_state.dirichlet([alpha] *
-                                                         len(legal_actions))
-                    legal_actions = [(a, (1 - epsilon) * p + epsilon * n)
-                                     for (a,
-                                          p), n in zip(legal_actions, noise)]
+                    legal_actions = self._add_exploration_noise(legal_actions)
                 # Reduce bias from move generation order.
                 self._random_state.shuffle(legal_actions)
                 player = working_state_env.current_player()
@@ -260,7 +277,7 @@ class MCTSBot:
             # Otherwise choose node with largest UCT value
             chosen_child: SearchNode = max(
                 current_node.children,
-                key=lambda c: self._child_selection_fn(  # pylint: disable=g-long-lambda
+                key=lambda c: self._child_selection_fn(
                     c, current_node.explore_count, self.uct_c),
             )
 
@@ -272,7 +289,7 @@ class MCTSBot:
 
     def _add_exploration_noise(
         self,
-        leagel_actions: List[Tuple[int, float]],
+        legal_actions: List[Tuple[int, float]],
     ) -> List[Tuple[int, float]]:
         """
         Overview:
@@ -281,21 +298,21 @@ class MCTSBot:
             - node (:obj:`Class Node`): Current node.
         """
         # Get a list of actions corresponding to the child nodes.
-        leagel_actions = list(leagel_actions)
+        legal_actions = list(legal_actions)
         # Compute the weight of the exploration noise.
         epsilon = self.dirichlet_noise_epsilon
         # Create a list of alpha values for Dirichlet noise.
-        alpha = [self.dirichlet_noide_alpha] * len(leagel_actions)
+        alpha = [self.dirichlet_noide_alpha] * len(legal_actions)
         # Generate Dirichlet noise using the alpha values.
         dirichlet_noise = np.random.dirichlet(alpha)
         noise_action_policy = []
         # Update the prior probability of each child node with the exploration noise.
-        for (action, prob), noise in zip(leagel_actions, dirichlet_noise):
+        for (action, prob), noise in zip(legal_actions, dirichlet_noise):
             noise_prob = epsilon * noise + (1 - epsilon) * prob
             noise_action_policy.append((action, noise_prob))
         return noise_action_policy
 
-    def mcts_search(self, game_env: BaseEnv):
+    def mcts_search(self, game_env: BaseEnv) -> SearchNode:
         """A vanilla Monte-Carlo Tree Search algorithm.
 
         This algorithm searches the game tree from the given state.
