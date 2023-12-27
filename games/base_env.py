@@ -1,6 +1,5 @@
 import copy
-from abc import ABC, abstractmethod
-from typing import Any
+from abc import ABC
 
 import gymnasium
 
@@ -10,38 +9,7 @@ class BaseEnv(gymnasium.Env, ABC):
     def __init__(self):
         pass
 
-    @abstractmethod
-    def reset(self) -> Any:
-        """
-        Overview:
-            Reset the env to an initial state and returns an initial observation.
-        Returns:
-            - obs (:obj:`Any`): Initial observation after reset.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def step(self, action: Any) -> 'BaseEnv.timestep':
-        """
-        Overview:
-            Run one timestep of the environment's dynamics/simulation.
-        Arguments:
-            - action (:obj:`Any`): The ``action`` input to step with.
-        Returns:
-            - timestep (:obj:`BaseEnv.timestep`): The result timestep of env executing one step.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
     def render(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def observation_space(self, agent):
-        raise NotImplementedError
-
-    @abstractmethod
-    def action_space(self, agent):
         raise NotImplementedError
 
     def current_player(self):
@@ -49,7 +17,7 @@ class BaseEnv(gymnasium.Env, ABC):
         over."""
         raise NotImplementedError
 
-    def legal_actions(self):
+    def legal_actions(self, player):
         """Returns a list of legal actions, sorted in ascending order."""
         raise NotImplementedError
 
