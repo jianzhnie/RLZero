@@ -15,7 +15,7 @@ class RolloutMCTS(object):
         c_puct: float = 5.0,
         n_limit: int = 1000,
     ) -> None:
-        self._root = TreeNode(parent=None, prior=1.0)
+        self._root: TreeNode = TreeNode(parent=None, prior=1.0)
         self.n_playout = n_playout
         self._c_puct = c_puct
         self.n_limit = n_limit
@@ -23,7 +23,7 @@ class RolloutMCTS(object):
     def _playout(self, game_env):
         """Run a single search from the root to the leaf, getting a value at
         the leaf and propagating it back through its parents."""
-        node = self._root
+        node: TreeNode = self._root
         while True:
             if node.is_leaf():
                 break
@@ -31,13 +31,10 @@ class RolloutMCTS(object):
             action, node = node.select(self._c_puct)
             # MCTS of SELECT step
             game_env.step(action)
-            # print('select action is ...',action)
-            # print(action, game_env.availables)
 
         action_probs = self.policy_value_fn(game_env)
-        # print('action_probs is ...', action_probs)
         # Check for end of game
-        is_end, _ = game_env.game_end()
+        is_end, _ = game_env.game_end_winner()
         if not is_end:
             node.expand(action_probs)
         # MCTS of the [EXPAND] step
@@ -48,16 +45,16 @@ class RolloutMCTS(object):
         # Update value and visit count of nodes in this traversal.
         node.update_recursive(-leaf_value)
         # MCTS of the [BACKUP] step
-        # print('after update...', node.explore_count, node.total_reward)
 
     def _evaluate(self, game_env):
         """Use the rollout policy to play until the end of the game, returning.
 
-        +1 if the current player wins, -1 if the opponent wins, and 0 if it is a tie.
+        +1 if the current player wins, -1 if the opponent wins, and 0 if it is
+        a tie.
         """
         # begin rollout
         for i in range(self.n_limit):
-            rollout_end, rollout_winner = game_env.game_end()
+            rollout_end, rollout_winner = game_env.game_end_winner()
             if rollout_end:
                 break
             rollout_probs = self.rollout_policy(game_env)
@@ -71,8 +68,8 @@ class RolloutMCTS(object):
         if rollout_winner == -1:  # tie
             leaf_value = 0
         else:
-            leaf_value = (1.0 if rollout_winner
-                          == game_env.get_current_player() else -1.0)
+            leaf_value = (1.0 if rollout_winner == game_env.current_player()
+                          else -1.0)
 
         return leaf_value
 
@@ -87,7 +84,8 @@ class RolloutMCTS(object):
         """Step forward in the tree, keeping everything we already know about
         the subtree.
 
-        if self-play then update the root node and reuse the search tree, speeding next simulation else reset the root
+        if self-play then update the root node and reuse the search tree,
+        speeding next simulation else reset the root
         """
         if last_move in self._root._children:
             self._root = self._root._children[last_move]
@@ -98,16 +96,16 @@ class RolloutMCTS(object):
     def rollout_policy(self, game_env):
         """rollout_policy_fn -- a coarse, fast version of policy_fn used in the rollout phase."""
         # rollout randomly
-        action_probs = np.random.rand(len(game_env.availables))
-        return zip(game_env.availables, action_probs)
+        action_probs = np.random.rand(len(game_env.leagel_actions()))
+        return zip(game_env.leagel_actions(), action_probs)
 
     def policy_value_fn(self, game_env):
         """a function that takes in a state and outputs a list of (action,
         probability) tuples."""
         # return uniform probabilities and 0 score for pure MCTS
-        action_probs = np.ones(len(game_env.availables)) / len(
-            game_env.availables)
-        return zip(game_env.availables, action_probs)
+        action_probs = np.ones(len(game_env.leagel_actions())) / len(
+            game_env.leagel_actions())
+        return zip(game_env.leagel_actions(), action_probs)
 
     def __str__(self):
         return 'RolloutMCTS'
@@ -129,7 +127,7 @@ class RolloutPlayer(Player):
         self.mcts.update_with_move(-1)
 
     def get_action(self, game_env, **kwargs):
-        sensible_moves = game_env.availables
+        sensible_moves = game_env.leagel_actions()
         if len(sensible_moves) > 0:
             move = self.mcts.simulate(game_env)
             self.mcts.update_with_move(-1)

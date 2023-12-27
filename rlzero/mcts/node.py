@@ -87,6 +87,21 @@ class TreeNode(object):
         score = exploration_score + c_puct * exploitation_score
         return score
 
+    def ucb_value(self, c_puct: float):
+        """Returns the UCT value of child."""
+        if self._parent.explore_count == 0:
+            return float('inf')
+
+        if self.explore_count == 0:
+            return float('inf')
+
+        exploration_score = self.total_reward / self.explore_count
+        exploitation_score = math.sqrt(
+            math.log(self._parent.explore_count) / self.explore_count)
+
+        score = exploration_score + c_puct * exploitation_score
+        return score
+
     def puct_value(self, c_puct: float):
         """Calculate and return the PUCT value for this node.
 

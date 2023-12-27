@@ -57,14 +57,14 @@ class AlphaZeroMCTS(object):
         # (action, probability) tuples p and also a score v in [-1, 1]
         # for the current player.
         action_probs, leaf_value = self.policy_value_fn(game_env)
-        is_end, winner = game_env.game_end()
+        is_end, winner = game_env.game_end_winner()
         if not is_end:
             node.expand(action_probs, add_noise=self.add_noise)
         else:
             if winner == -1:  # tie
                 leaf_value = 0.0
             else:
-                leaf_value = 1.0 if winner == game_env.get_current_player(
+                leaf_value = 1.0 if winner == game_env.current_player(
                 ) else -1.0
 
         # Update value and visit count of nodes in this traversal.
@@ -139,7 +139,7 @@ class AlphaZeroPlayer(Player):
         temperature: float = 1e-3,
         return_prob: bool = False,
     ):
-        sensible_moves = game_env.availables
+        sensible_moves = game_env.leagel_actions()
         # the pi vector returned by MCTS as in the alphaGo Zero paper
         move_probs = np.zeros(game_env.width * game_env.height)
         if len(sensible_moves) > 0:
