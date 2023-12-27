@@ -141,7 +141,7 @@ class AlphaZeroPlayer(Player):
     ):
         sensible_moves = game_env.leagel_actions()
         # the pi vector returned by MCTS as in the alphaGo Zero paper
-        move_probs = np.zeros(game_env.width * game_env.height)
+        move_probs = np.zeros(game_env.board_size * game_env.board_size)
         if len(sensible_moves) > 0:
             acts, probs = self.mcts.simulate(game_env, temperature)
             move_probs[list(acts)] = probs
