@@ -4,8 +4,9 @@ from uu import Error
 
 import numpy as np
 
-from games.gomoku import GomokuEnv
 from rlzero.mcts.player import Player
+
+from .gomoku_env import GomokuEnv
 
 
 class Game(object):
