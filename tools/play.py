@@ -1,6 +1,9 @@
 from __future__ import print_function
 
+import os
 import sys
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 sys.path.append('..')
 from games.game import Game
@@ -42,10 +45,10 @@ def alphazero_vs_mcts():
     # 加载模型
     alphazero_agent = AlphaZeroAgent(board.width, board.height)
     alphazero_plyer = AlphaZeroPlayer(alphazero_agent.policy_value_fn,
-                                      n_playout=1000,
+                                      n_playout=1,
                                       player_name='AlphaZero')
     # 两个AI对打
-    mcts_player2 = RolloutPlayer(n_playout=1000, player_name='MCTS_2')
+    mcts_player2 = RolloutPlayer(n_playout=10, player_name='MCTS_2')
     # 开始对打
     game.start_play(alphazero_plyer, mcts_player2, start_player=0)
 
@@ -53,4 +56,4 @@ def alphazero_vs_mcts():
 if __name__ == '__main__':
     # alphazero_vs_mcts()
     mcts_vs_mcts()
-    # human_vs_mcts()
+    human_vs_mcts()
