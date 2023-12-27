@@ -3,12 +3,12 @@ from __future__ import print_function
 from typing import List, Tuple
 from uu import Error
 
-import gymnasium
 import numpy as np
-from gymnasium.spaces import Box, Discrete
+
+from ..base_env import BaseEnv
 
 
-class GomokuEnv(gymnasium.Env):
+class GomokuEnv(BaseEnv):
     """board for the game.
 
     board states stored as a dict,
@@ -18,32 +18,29 @@ class GomokuEnv(gymnasium.Env):
 
     def __init__(
         self,
-        width: int = 8,
-        height: int = 8,
+        board_size: int = 8,
         n_in_row: int = 5,
         start_player_idx: int = 0,
     ) -> None:
-        self.width = width
-        self.height = height
+        super().__init__()
+        self.board_size = board_size
         self.n_in_row = n_in_row
         self.players = [1, 2]  # player1 and player2
         self.start_player_idx = start_player_idx  # start player
         self._current_player = self.players[self.start_player_idx]
-        self.action_space = Discrete(width * height)
-        self.observation_space = Box(0, 1, shape=(4, width, height))
-        self._leagel_actions = list(range(self.width * self.height))
+        self._leagel_actions = list(range(self.board_size * self.board_size))
 
     def reset(self, start_player_idx: int = 0) -> None:
         """init the board and set some variables."""
-        if self.width < self.n_in_row or self.height < self.n_in_row:
+        if self.board_size < self.n_in_row:
+            raise Error(f'Board board_size can not less than {self.n_in_row}')
+        if start_player_idx not in (0, 1):
             raise Error(
-                f'Board width and height can not less than {self.n_in_row}')
+                f'{start_player_idx} should be 0 (player1 first) or 1 (player2 first)'
+            )
         self.start_player_idx = start_player_idx
         self._current_player = self.players[start_player_idx]
-        # start player
-        # keep available moves in a list
-        # once a move has been played, remove it right away
-        self._leagel_actions = list(range(self.width * self.height))
+        self._leagel_actions = list(range(self.board_size * self.board_size))
         self.states = {}
         self.last_move = -1
         self.info = {}
@@ -59,9 +56,9 @@ class GomokuEnv(gymnasium.Env):
         self._leagel_actions.remove(action)
         # change the current player
         self.last_move = action
-        done, winner = self.get_done_winner()
+        win, winner = self.has_a_winner()
         reward = 0
-        if done:
+        if win:
             if winner == self._current_player:
                 reward = 1
             else:
@@ -70,23 +67,22 @@ class GomokuEnv(gymnasium.Env):
         self._current_player = (self.players[0] if self._current_player
                                 == self.players[1] else self.players[1])
         obs = self.current_state()
-        return obs, reward, done, self.info
+        return obs, reward, win, self.info
 
     def leagel_actions(self):
         return self._leagel_actions
 
     def render(self):
-        width = self.width
-        height = self.height
+        board_size = self.board_size
         p1, p2 = self.players
         print()
-        for x in range(width):
+        for x in range(board_size):
             print('{0:8}'.format(x), end='')
         print('\r\n')
-        for i in range(height - 1, -1, -1):
+        for i in range(board_size - 1, -1, -1):
             print('{0:4d}'.format(i), end='')
-            for j in range(width):
-                loc = i * width + j
+            for j in range(board_size):
+                loc = i * board_size + j
                 p = self.states.get(loc, -1)
                 if p == p1:
                     print('B'.center(8), end='')
@@ -99,46 +95,36 @@ class GomokuEnv(gymnasium.Env):
     def current_state(self) -> np.ndarray:
         """return the board state from the perspective of the current player.
 
-        state shape: (self.feature_planes+1) x width x height
+        state shape: (self.feature_planes+1) x board_size x board_size
         """
-        square_state = np.zeros((4, self.width, self.height))
+        square_state = np.zeros((4, self.board_size, self.board_size))
         if self.states:
             moves, players = np.array(list(zip(*self.states.items())))
-            # states contain the (key,value) indicate (move,player)
-            # for example
-            # self.states.items() get dict_items([(1, 1), (2, 1), (3, 2)])
-            # zip(*) get [(1, 2, 3), (1, 1, 2)]
-            # then np.array and get
-            # moves = np.array([1, 2, 3])
-            # players = np.array([1, 1, 2])
             move_curr = moves[players == self._current_player]
             move_oppo = moves[players != self._current_player]
 
             # to construct the binary feature planes as alphazero did
-            square_state[0][move_curr // self.width,
-                            move_curr % self.height] = 1.0
-            square_state[1][move_oppo // self.width,
-                            move_oppo % self.height] = 1.0
+            square_state[0][tuple(self.move_to_location(move_curr))] = 1.0
+            square_state[1][tuple(self.move_to_location(move_oppo))] = 1.0
             # indicate the last move location
-            square_state[2][self.last_move // self.width,
-                            self.last_move % self.height] = 1.0
+            square_state[2][tuple(self.move_to_location(self.last_move))] = 1.0
         if len(self.states) % 2 == 0:
             square_state[3][:, :] = 1.0
             # indicate the colour to play
-        return square_state[:, ::-1, :]
+        return square_state
 
-    def get_done_winner(self) -> Tuple[bool, int]:
+    def has_a_winner(self) -> Tuple[bool, int]:
         """Judge if there's a 5-in-a-row, and which player if so.
 
         Returns:
             Tuple[bool, int]: _description_
         """
-        width = self.width
-        height = self.height
+        board_size = self.board_size
         states = self.states
         n = self.n_in_row
         # 棋盘上所有棋子的位置
-        moved = list(set(range(width * height)) - set(self._leagel_actions))
+        moved = list(
+            set(range(board_size * board_size)) - set(self._leagel_actions))
         # 当前所有棋子数量不足以获胜
         if len(moved) < self.n_in_row * 2 - 1:
             return False, -1
@@ -147,31 +133,34 @@ class GomokuEnv(gymnasium.Env):
             h, w = self.move_to_location(m)
             player = states[m]
             # 判断是否有水平线
-            if (w in range(width - n + 1)
+            if (w in range(board_size - n + 1)
                     and len(set(states.get(i, -1)
                                 for i in range(m, m + n))) == 1):
                 return True, player
             # 判断是否有竖线
-            if (h in range(height - n + 1) and len(
+            if (h in range(board_size - n + 1) and len(
                     set(
                         states.get(i, -1)
-                        for i in range(m, m + n * width, width))) == 1):
+                        for i in range(m, m + n * board_size, board_size)))
+                    == 1):
                 return True, player
             # 判断是否有斜线
-            if (w in range(width - n + 1) and h in range(height - n + 1)
-                    and len(
+            if (w in range(board_size - n + 1)
+                    and h in range(board_size - n + 1) and len(
                         set(
                             states.get(i, -1)
                             for i in range(m, m + n *
-                                           (width + 1), width + 1))) == 1):
+                                           (board_size + 1), board_size + 1)))
+                    == 1):
                 return True, player
 
-            if (w in range(n - 1, width) and h in range(height - n + 1)
-                    and len(
+            if (w in range(n - 1, board_size)
+                    and h in range(board_size - n + 1) and len(
                         set(
                             states.get(i, -1)
                             for i in range(m, m + n *
-                                           (width - 1), width - 1))) == 1):
+                                           (board_size - 1), board_size - 1)))
+                    == 1):
                 return True, player
 
         return False, -1
@@ -188,22 +177,22 @@ class GomokuEnv(gymnasium.Env):
                 - if draw,             'done' = True, 'reward' = 0
                 - if game is not over, 'done' = False,'reward' = None
         """
-        done, winner = self.get_done_winner()
+        win, winner = self.has_a_winner()
         if winner == 1:
             reward = 1
         elif winner == 2:
             reward = -1
-        elif winner == -1 and done:
+        elif winner == -1 and win:
             reward = 0
-        elif winner == -1 and not done:
+        elif winner == -1 and not win:
             # episode is not done
             reward = None
-        return done, reward
+        return win, reward
 
     def game_end_winner(self):
         """Check whether the game is ended or not."""
-        done, winner = self.get_done_winner()
-        if done:
+        win, winner = self.has_a_winner()
+        if win:
             return True, winner
         elif not len(self._leagel_actions):
             return True, -1
@@ -214,8 +203,8 @@ class GomokuEnv(gymnasium.Env):
 
         6 7 8     3 4 5     0 1 2 and move 5's location is (1,2)
         """
-        h = move // self.width
-        w = move % self.width
+        h = move // self.board_size
+        w = move % self.board_size
         return [h, w]
 
     def location_to_move(self, location: List) -> int:
@@ -232,8 +221,8 @@ class GomokuEnv(gymnasium.Env):
             return -1
         h = location[0]
         w = location[1]
-        move = h * self.width + w
-        if move not in range(self.width * self.height):
+        move = h * self.board_size + w
+        if move not in range(self.board_size * self.board_size):
             return -1
         return move
 
@@ -246,8 +235,8 @@ class GomokuEnv(gymnasium.Env):
         Returns:
             - String representing the action.
         """
-        row = move // self.width + 1
-        col = move % self.width + 1
+        row = move // self.board_size + 1
+        col = move % self.board_size + 1
         return f'Play row {row}, column {col}'
 
     def current_player(self):
