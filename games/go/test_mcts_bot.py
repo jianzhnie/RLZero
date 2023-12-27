@@ -1,6 +1,6 @@
 import sys
 
-from envs.go_env import GoEnv
+from .go_env import GoEnv
 
 sys.path.append('../../')
 from rlzero.mcts.mcts_bot import MCTSBot
