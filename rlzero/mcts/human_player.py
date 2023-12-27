@@ -18,7 +18,7 @@ class HumanPlayer(Player):
         except Exception as e:
             print(e)
             move = -1
-        if move == -1 or move not in game_env.availables:
+        if move == -1 or move not in game_env.leagel_actions():
             print('invalid move')
             move = self.get_action(game_env)
         return move
@@ -29,7 +29,7 @@ class HumanPlayer(Player):
             pass
         location = tool.getmove()  # [x,y]
         move = board.loc2move(location)
-        if move == -1 or move not in board.availables:
+        if move == -1 or move not in board.leagel_actions():
             print('invalid move')
             move = self.get_action_tool(board)
         return move
