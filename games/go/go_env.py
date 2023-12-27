@@ -387,12 +387,6 @@ class GoEnv(AECEnv, EzPickle):
                 print('Wrong input, try again')
         return choice
 
-    def get_observation_space(self):
-        return self.observation_spaces
-
-    def get_action_space(self):
-        return self.action_space
-
     def seed(self, seed: int, dynamic_seed: bool = True) -> None:
         self._seed = seed
         self._dynamic_seed = dynamic_seed
