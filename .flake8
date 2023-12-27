@@ -1,6 +1,6 @@
 [flake8]
 ignore = E731, E741, W504, W503, E126,E125, E402, E266, E501, W605
-max-line-length = 160
+max-line-length = 79
 show-source = False
 application-import-names = rlzero
 exclude =
