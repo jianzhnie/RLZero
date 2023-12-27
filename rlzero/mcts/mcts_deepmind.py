@@ -236,12 +236,14 @@ class MCTSBot:
 
         return policy, mcts_action
 
-    def step(self, state) -> int:
-        return self.step_with_policy(state)[1]
+    def step(self, game_env: BaseEnv) -> int:
+        return self.step_with_policy(game_env)[1]
 
     def _apply_tree_policy(
-            self, root: SearchNode,
-            game_env: BaseEnv) -> Tuple[List[SearchNode], BaseEnv]:
+        self,
+        root: SearchNode,
+        game_env: BaseEnv,
+    ) -> Tuple[List[SearchNode], BaseEnv]:
         """Applies the UCT policy to play the game until reaching a leaf node.
 
         A leaf node is defined as a node that is terminal or has not been evaluated
