@@ -1,27 +1,19 @@
 from __future__ import print_function
 
+from uu import Error
+
 import numpy as np
 
-from games.gomoku.gomoku_env import GomokuEnv
+from games.gomoku import GomokuEnv
 from rlzero.mcts.player import Player
-
-from .visual_tool import VisualTool
 
 
 class Game(object):
     """game server."""
 
-    def __init__(
-        self,
-        game_env: GomokuEnv,
-        is_visualize: bool = False,
-    ) -> None:
+    def __init__(self, game_env: GomokuEnv) -> None:
         self.game_env = game_env
         self.visualTool = None
-        if is_visualize:
-            self.visualTool = VisualTool(board_size=[
-                self.game_env.board_size, self.game_env.board_size
-            ])
 
     def set_player_symbol(self, start_player) -> None:
         """show board, set player symbol X OR O."""
@@ -32,19 +24,6 @@ class Game(object):
         else:
             self.player1_symbol = 'O'
             self.player2_symbol = 'X'
-
-    def show(self) -> None:
-        self.visualTool.draw()
-
-    def graphic_visualTool(
-        self,
-        game_env: GomokuEnv,
-        player1: Player,
-        player2: Player,
-    ):
-        """Draw the board and show game info."""
-        loc = self.game_env.move_to_location(self.game_env.last_move)
-        self.visualTool.graphic(loc[0], loc[1])
 
     def graphic(
         self,
@@ -87,8 +66,9 @@ class Game(object):
     ) -> int:
         """start a game between two players."""
         if start_player not in (0, 1):
-            raise Exception('start_player should be either 0 (player1 first) '
-                            'or 1 (player2 first)')
+            raise Error(
+                f'{start_player} should be 0 (player1 first) or 1 (player2 first)'
+            )
         self.game_env.reset()
         p1, p2 = self.game_env.players
         player1.set_player_id(p1)

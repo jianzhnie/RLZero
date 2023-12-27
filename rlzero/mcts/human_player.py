@@ -23,17 +23,6 @@ class HumanPlayer(Player):
             move = self.get_action(game_env)
         return move
 
-    def get_action_tool(self, board, **kwargs):
-        tool = kwargs['tool']
-        while not tool.flag:  # block
-            pass
-        location = tool.getmove()  # [x,y]
-        move = board.loc2move(location)
-        if move == -1 or move not in board.leagel_actions():
-            print('invalid move')
-            move = self.get_action_tool(board)
-        return move
-
     def __str__(self):
         return 'HumanPlayer, id: {}, name {}.'.format(self.get_player_id(),
                                                       self.get_player_name())

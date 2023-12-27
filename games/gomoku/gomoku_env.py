@@ -117,7 +117,11 @@ class GomokuEnv(BaseEnv):
         """Judge if there's a 5-in-a-row, and which player if so.
 
         Returns:
-            Tuple[bool, int]: _description_
+            - outputs (:obj:`Tuple`): Tuple containing 'is_win' and 'winner',
+                - if player 1 win,     'is_win' = True, 'winner' = 1
+                - if player 2 win,     'is_win' = True, 'winner' = 2
+                - if draw,             'is_win' = False, 'winner' = -1
+                - if game is not over, 'is_win' = False, 'winner' = -1
         """
         board_size = self.board_size
         states = self.states
