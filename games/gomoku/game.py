@@ -9,7 +9,7 @@ from rlzero.mcts.player import Player
 from .gomoku_env import GomokuEnv
 
 
-class Game(object):
+class GameControl(object):
     """game server."""
 
     def __init__(self, game_env: GomokuEnv) -> None:
