@@ -3,7 +3,7 @@ import sys
 from go_env import GoEnv
 
 sys.path.append('../../')
-from rlzero.mcts.mcts_deepmind import MCTSBot
+from rlzero.mcts.deepmind_mcts import DeepMindMCTS
 
 
 def test_go_mctsbot_vs_mctsbot(num_simulations=50):
@@ -14,26 +14,27 @@ def test_go_mctsbot_vs_mctsbot(num_simulations=50):
         - num_simulations (:obj:`int`): The number of the simulations required to find the best move.
     """
     # Initialize the game, where there are two players: player 1 and player 2.
-    env = GoEnv(board_size=5, komi=0)
+    env = GoEnv(board_size=9, komi=7.5, render_mode='human')
     # Reset the environment, set the board to a clean board and the  start player to be player 1.
     env.reset(seed=42)
-    mcts_player_0 = MCTSBot(env, 'mcts_bot0', num_simulations)
-    mcts_player_1 = MCTSBot(env, 'mcts_bot1', num_simulations)
-    # player_index = 0, player = 1
-    # Set player 1 to move first.
-    player_index = 0
-    for player_index in env.agent_iter():
-        print('player_index: ', player_index)
+    print(env.legal_actions())
+    mcts_player1 = DeepMindMCTS(env,
+                                max_simulations=num_simulations,
+                                verbose=True)
+    print('after init mcts_player1')
+    print(mcts_player1.game_env.legal_actions())
+    for (agent_index, agent) in enumerate(env.agent_iter()):
         observation, reward, termination, truncation, info = env.last()
         if termination or truncation:
             action = None
         else:
-            if player_index == 0:
-                action = mcts_player_0.get_actions(env,
-                                                   player_index=player_index)
+            if agent_index == 0:
+                print('get plyer1 action: ')
+                action = mcts_player1.step(env)
             else:
-                action = mcts_player_1.get_actions(env,
-                                                   player_index=player_index)
+                mask = observation['action_mask']
+                action = env.action_space(agent).sample(mask)
+        print(f"Agent {agent}'s turn. Action: {action}")
         env.step(action)
     env.close()
 
