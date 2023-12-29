@@ -1,12 +1,15 @@
 """Monte-Carlo Tree Search algorithm for game play."""
 
 import math
+import time
 from abc import ABC
 from typing import Any, List, Tuple
 
 import numpy as np
 
 from games.base_env import BaseEnv
+
+from .player import Player
 
 
 class Evaluator(object):
@@ -17,11 +20,11 @@ class Evaluator(object):
     winning the game. It returns the evaluation from all player's perspectives.
     """
 
-    def evaluate(self, game_env):
+    def evaluate(self, game_env: BaseEnv):
         """Returns evaluation on given state."""
         raise NotImplementedError
 
-    def prior(self, game_env):
+    def prior(self, game_env: BaseEnv):
         """Returns a probability for each legal action in the given state."""
         raise NotImplementedError
 
@@ -34,7 +37,7 @@ class RandomRolloutEvaluator(Evaluator):
     random outcomes to be considered.
     """
 
-    def __init__(self, n_rollouts: int = 1, random_state: Any = None):
+    def __init__(self, n_rollouts: int = 20, random_state: Any = None):
         self.n_rollouts = n_rollouts
         self._random_state: np.random.RandomState = (random_state or
                                                      np.random.RandomState())
@@ -43,13 +46,13 @@ class RandomRolloutEvaluator(Evaluator):
         """Returns evaluation on given state."""
         result = None
         for _ in range(self.n_rollouts):
-            working_state_env = game_env.clone()
-            while not working_state_env.is_terminal():
-                legal_actions = working_state_env.legal_actions(
+            working_env = game_env.clone()
+            while not working_env.is_terminal():
+                legal_actions = working_env.legal_actions(
                     game_env.current_player())
                 action = self._random_state.choice(legal_actions)
-                working_state_env.step(action)
-            returns = np.array(working_state_env.returns())
+                working_env.step(action)
+            returns = np.array(working_env.returns())
             result = returns if result is None else result + returns
 
         return result / self.n_rollouts
@@ -101,14 +104,22 @@ class SearchNode(ABC):
         self.outcome = None
         self.children = []
 
-    def expand(self):
-        pass
-
-    def backpropagate(self, reward):
-        pass
-
     def uct_value(self, parent_explore_count: int, uct_c: float) -> float:
-        """Returns the UCT value of child."""
+        """
+        Overview: Returns the UCT value of child.
+
+            This function finds the best child node which has the highest UCB (Upper Confidence Bound) score.
+            The UCB formula is:
+            {UCT}(v_i, v) = \frac{Q(v_i)}{N(v_i)} + c \sqrt{\frac{\log(N(v))}{N(v_i)}}
+                - Q(v_i) is the estimated value of the child node v_i.
+                - N(v_i) is a counter of how many times the child node v_i has been on the backpropagation path.
+                - N(v) is a counter of how many times the parent (current) node v has been on the backpropagation path.
+                - c is a parameter which balances exploration and exploitation.
+        Arguments:
+            - parent_explore_count (:obj:`int`): the number of times the parent node has been visited.
+            - uct_c (:obj:`float`): a parameter which controls the balance between exploration and exploitation. Default value is 1.4.
+        """
+
         if self.outcome is not None:
             return self.outcome[self.player]
 
@@ -119,7 +130,20 @@ class SearchNode(ABC):
             math.log(parent_explore_count) / self.explore_count)
 
     def puct_value(self, parent_explore_count: int, uct_c: float) -> float:
-        """Returns the PUCT value of child."""
+        """
+        Overview: Returns the PUCT value of child.
+
+            This function finds the best child node which has the highest UCB (Upper Confidence Bound) score.
+            The UCB formula is:
+            {UCT}(v_i, v) = \frac{Q(v_i)}{N(v_i)} + c \sqrt{\frac{\log(N(v))}{N(v_i)}}
+                - Q(v_i) is the estimated value of the child node v_i.
+                - N(v_i) is a counter of how many times the child node v_i has been on the backpropagation path.
+                - N(v) is a counter of how many times the parent (current) node v has been on the backpropagation path.
+                - c is a parameter which balances exploration and exploitation.
+        Arguments:
+            - parent_explore_count (:obj:`int`): the number of times the parent node has been visited.
+            - uct_c (:obj:`float`): a parameter which controls the balance between exploration and exploitation. Default value is 1.4.
+        """
         if self.outcome is not None:
             return self.outcome[self.player]
 
@@ -151,7 +175,7 @@ class SearchNode(ABC):
         """Returns the best child in order of the sort key."""
         return max(self.children, key=SearchNode.sort_key)
 
-    def rollout_policy(self, possible_actions):
+    def rollout_policy(self, possible_actions: List[int]) -> int:
         """
         Overview:
             This method implements the rollout policy for a node during the Monte Carlo Tree Search.
@@ -164,20 +188,214 @@ class SearchNode(ABC):
         """
         return possible_actions[np.random.randint(len(possible_actions))]
 
+    def children_str(self, game_env: BaseEnv = None) -> str:
+        """Returns the string representation of this node's children.
 
-class MCTSBot:
+        They are ordered based on the sort key, so order of being chosen to play.
+
+        Args:
+          state: A `pyspiel.State` object, to be used to convert the action id into
+            a human readable format. If None, the action integer id is used.
+        """
+        return '\n'.join([
+            c.to_str(game_env)
+            for c in reversed(sorted(self.children, key=SearchNode.sort_key))
+        ])
+
+    def to_str(self, game_env: BaseEnv = None) -> str:
+        """Returns the string representation of this node.
+
+        Args:
+          state: A `pyspiel.State` object, to be used to convert the action id into
+            a human readable format. If None, the action integer id is used.
+        """
+        action = str(self.action)
+        return (
+            'action:{}, player: {}, prior: {:5.3f}, value: {:6.3f}, sims: {:5d}, '
+            'outcome: {}, {:3d} children').format(
+                action,
+                self.player,
+                self.prior,
+                self.explore_count and self.total_reward / self.explore_count,
+                self.explore_count,
+                ('{:4.1f}'.format(self.outcome[self.player])
+                 if self.outcome else 'none'),
+                len(self.children),
+            )
+
+    def __str__(self) -> str:
+        return self.to_str(None)
+
+
+class MCTSNode(SearchNode):
+    """A node in the search tree.
+
+    Args:
+        SearchNode (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    def __init__(
+        self,
+        parent: SearchNode,
+        action: int,
+        player: int,
+        prior: float,
+    ):
+        super().__init__(action, player, prior)
+        self.parent = parent
+        self.action = action
+        self.children = []
+        self.player = player
+
+    def select(self) -> 'SearchNode':
+        best_child = self.best_child()
+        best_action = best_child.action
+        return best_action
+
+    def expand(
+        self,
+        player: int,
+        action_priors: List[Tuple[int, float]],
+    ) -> None:
+        """
+        Overview:
+            This method expands the current node by creating a new child node.
+            It pops an action from the list of legal actions, simulates the action to get the next game state,
+            and creates a new child node with that state. The new child node is then added to the list of children nodes.
+        Args:
+            player (int): The player who is going to play the action.
+            action_priors (List[Tuple[int, float]]): A list of tuples containing the action and the prior probability of the action.
+        Returns:
+            - node(:obj:`TwoPlayersMCTSNode`): The child node object that has been created.
+        """
+        action_priors = list(action_priors)
+        for action, prior in action_priors:
+            child_node = MCTSNode(parent=self,
+                                  action=action,
+                                  player=player,
+                                  prior=prior)
+            self.children.append(child_node)
+
+        return
+
+    def backpropagate(self, reward: float) -> None:
+        """
+        Overview:
+            This method performs backpropagation from the current node.
+            It increments the number of times the node has been visited and the number of wins for the result.
+            If the current node has a parent, the method recursively backpropagates the result to the parent.
+        """
+        self.explore_count += 1.0
+        # result is the index of the self._results list.
+        # result = ±1 when player 1 wins/loses the game.
+        self.total_reward += reward
+        if self.parent:
+            self.parent.backpropagate(reward)
+
+    def _tree_policy(self, root: SearchNode, game_env: BaseEnv):
+        """
+        Overview:
+            This function implements the tree search from the root node to the leaf node, which is either visited for the first time or is the terminal node.
+            At each step, if the current node is not fully expanded, it expands.
+            If it is fully expanded, it moves to the best child according to the tree policy.
+        Returns:
+            - node(:obj:`TwoPlayersMCTSNode`): The leaf node object that has been reached by the tree search.
+        """
+        current_node: SearchNode = SearchNode(None,
+                                              game_env.current_player(),
+                                              prior=1.0)
+        working_env = game_env.clone()
+        while not working_env.is_terminal() and current_node.explore_count > 0:
+            if not current_node.children:
+                # choose a child node which has not been visited before
+                return current_node.expand()
+            else:
+                current_node = current_node.best_child()
+        return current_node
+
+    def rollout(self, game_env: BaseEnv):
+        """
+        Overview:
+            This method performs a rollout (simulation) from the current node.
+            It repeatedly selects an action based on the rollout policy and simulates the action until the game ends.
+            The method then returns the reward of the game's final state.
+        Returns:
+            -reward (:obj:`int`): reward = ±1 when player 1 wins/loses the game, reward = 0 when it is a tie, reward = None when current node is not a teminal node.
+        """
+        current_rollout_env = game_env.clone()
+        # print(current_rollout_env.board)
+        while not current_rollout_env.is_terminal():
+            possible_actions = current_rollout_env.legal_actions(
+                current_rollout_env.current_player())
+            action = self.rollout_policy(possible_actions)
+            current_rollout_env = current_rollout_env.step(action)
+        return current_rollout_env.returns()[self.player]
+
+    def mcts_simulate(
+        self,
+        game_env: BaseEnv,
+        max_simulation_number: int = 1000,
+        max_simulation_seconds: int = 100,
+    ) -> None:
+        """_summary_
+
+        Args:
+            game_env (BaseEnv): _description_
+        """
+        if max_simulation_number is None and max_simulation_seconds is None:
+            raise ValueError(
+                'Either max_simulation_number or max_simulation_seconds must be set.'
+            )
+        if max_simulation_number is None:
+            assert max_simulation_seconds is not None
+            end_time = time.time() + max_simulation_seconds
+            while True:
+                if time.time() > end_time:
+                    break
+
+    def is_fully_expanded(self):
+        """
+        Overview:
+            This method checks if the node is fully expanded.
+            A node is considered fully expanded when all of its child nodes have been selected at least once.
+            Whenever a new child node is selected for the first time, a corresponding action is removed from the list of legal actions.
+            Once the list of legal actions is depleted, it signifies that all child nodes have been selected,
+            thereby indicating that the parent node is fully expanded.
+        """
+        return len(self.legal_actions()) == 0
+
+    def is_terminal_node(self):
+        """
+        Overview:
+            This function checks whether the current node is a terminal node.
+            It uses the game environment's get_done_reward method to check if the game has ended.
+        Returns:
+            - A bool flag representing whether the game is over.
+        """
+        # The get_done_reward() returns a tuple (done, reward).
+        # reward = ±1 when player 1 wins/loses the game.
+        # reward = 0 when it is a tie.
+        # reward = None when current node is not a teminal node.
+        # done is the bool flag representing whether the game is over.
+        return self.env.get_done_reward()[0]
+
+
+class DeepMindMCTS:
     """Bot that uses Monte-Carlo Tree Search algorithm."""
 
     def __init__(
         self,
         game_env: None,
         uct_c: float = 2,
-        max_simulations: int = 800,
-        evaluator: RandomRolloutEvaluator = None,
+        max_simulations: int = 2000,
+        evaluator: RandomRolloutEvaluator = RandomRolloutEvaluator(),
         child_selection_method: str = 'puct',
         add_exploration_noise: bool = False,
-        dirichlet_alpha: float = None,
-        dirichlet_epsilon: float = None,
+        dirichlet_noise_alpha: float = 1.0,
+        dirichlet_noise_epsilon: float = 0.25,
         solve: bool = True,
         verbose: bool = False,
     ) -> None:
@@ -187,7 +405,7 @@ class MCTSBot:
         greedy strategy.
 
         Args:
-          game: A pyspiel.Game to play.
+          game_env: A Game Env to play.
           uct_c: The exploration constant for UCT.
           max_simulations: How many iterations of MCTS to perform. Each simulation
             will result in one call to the evaluator. Memory usage should grow
@@ -216,9 +434,12 @@ class MCTSBot:
         elif child_selection_method == 'uct':
             self._child_selection_fn = SearchNode.uct_value
         self.max_utility = game_env.max_utility()
+        if add_exploration_noise:
+            assert dirichlet_noise_alpha is not None
+            assert dirichlet_noise_epsilon is not None
         self.add_exploration_noise = add_exploration_noise
-        self.dirichlet_noide_alpha = dirichlet_alpha
-        self.dirichlet_noise_epsilon = dirichlet_epsilon
+        self.dirichlet_noide_alpha = dirichlet_noise_epsilon
+        self.dirichlet_noise_epsilon = dirichlet_noise_epsilon
         self.verbose = verbose
         self.solve = solve
         self._random_state = np.random.RandomState()
@@ -226,8 +447,24 @@ class MCTSBot:
     def step_with_policy(
             self, game_env: BaseEnv) -> Tuple[List[Tuple[int, float]], int]:
         """Returns bot's policy and action at given state."""
+        t1 = time.time()
         root: SearchNode = self.mcts_search(game_env)
         best: SearchNode = root.best_child()
+
+        if self.verbose:
+            seconds = time.time() - t1
+            print('Finished {} sims in {:.3f} secs, {:.1f} sims/s'.format(
+                root.explore_count, seconds, root.explore_count / seconds))
+            print('Root:')
+            print(root.to_str(game_env))
+            print('Children:')
+            print(root.children_str(game_env))
+            if best.children:
+                working_env = game_env.clone()
+                working_env.step(best.action)
+                print('Children of chosen:')
+                print(best.children_str(working_env))
+
         mcts_action = best.action
 
         legal_actions = game_env.legal_actions(game_env.current_player())
@@ -259,18 +496,17 @@ class MCTSBot:
           working_state: The state of the game at the leaf node.
         """
         visit_path = [root]
-        working_state_env = game_env.clone()
+        working_env: BaseEnv = game_env.clone()
         current_node: SearchNode = root
-        while not working_state_env.is_terminal(
-        ) and current_node.explore_count > 0:
+        while not working_env.is_terminal() and current_node.explore_count > 0:
             if not current_node.children:
                 # For a new node, initialize its state, then choose a child as normal.
-                legal_actions = self.evaluator.prior(working_state_env)
+                legal_actions = self.evaluator.prior(working_env)
                 if current_node is root and self.add_exploration_noise:
-                    legal_actions = self._add_exploration_noise(legal_actions)
+                    legal_actions = self._add_dirichlet_noise(legal_actions)
                 # Reduce bias from move generation order.
                 self._random_state.shuffle(legal_actions)
-                player = working_state_env.current_player()
+                player = working_env.current_player()
                 current_node.children = [
                     SearchNode(action, player, prior)
                     for action, prior in legal_actions
@@ -283,16 +519,15 @@ class MCTSBot:
                     c, current_node.explore_count, self.uct_c),
             )
 
-            working_state_env.step(chosen_child.action)
+            working_env.step(chosen_child.action)
             current_node = chosen_child
             visit_path.append(current_node)
 
-        return visit_path, working_state_env
+        return visit_path, working_env
 
-    def _add_exploration_noise(
-        self,
-        legal_actions: List[Tuple[int, float]],
-    ) -> List[Tuple[int, float]]:
+    def _add_dirichlet_noise(
+            self,
+            legal_actions: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
         """
         Overview:
             Add exploration noise.
@@ -306,7 +541,7 @@ class MCTSBot:
         # Create a list of alpha values for Dirichlet noise.
         alpha = [self.dirichlet_noide_alpha] * len(legal_actions)
         # Generate Dirichlet noise using the alpha values.
-        dirichlet_noise = np.random.dirichlet(alpha)
+        dirichlet_noise = self._random_state.dirichlet(alpha)
         noise_action_policy = []
         # Update the prior probability of each child node with the exploration noise.
         for (action, prob), noise in zip(legal_actions, dirichlet_noise):
@@ -363,32 +598,34 @@ class MCTSBot:
         Returns:
           The most visited move from the root node.
         """
-        root: SearchNode = SearchNode(None, game_env.current_player(), 1)
+        root: SearchNode = SearchNode(action=None,
+                                      player=game_env.current_player(),
+                                      prior=1)
         for _ in range(self.max_simulations):
-            visit_path, working_state_env = self._apply_tree_policy(
-                root, game_env)
-            if working_state_env.is_terminal():
-                returns = working_state_env.returns()
+            visit_path, working_env = self._apply_tree_policy(root, game_env)
+            if working_env.is_terminal():
+                returns = working_env.returns()
                 visit_path[-1].outcome = returns
                 solved = self.solve
             else:
-                returns = self.evaluator.evaluate(working_state_env)
+                returns = self.evaluator.evaluate(working_env)
                 solved = False
 
             while visit_path:
-                # For chance nodes, walk up the tree to find the decision-maker.
                 decision_node_idx = -1
                 # Chance node targets are for the respective decision-maker.
                 target_return = returns[visit_path[decision_node_idx].player]
-                node = visit_path.pop()
+                node: SearchNode = visit_path.pop()
                 node.total_reward += target_return
                 node.explore_count += 1
 
                 if solved and node.children:
                     player = node.children[0].player
+                    # 这里，node 为非叶子节点，node.children 为 node 的所有子节点
+                    # node.children[0].player 为 node 的第一个子节点的 player
                     # If any have max utility (won?), or all children are solved,
                     # choose the one best for the player choosing.
-                    best = None
+                    best: SearchNode = None
                     all_solved = True
                     for child in node.children:
                         if child.outcome is None:
@@ -405,3 +642,48 @@ class MCTSBot:
                 break
 
         return root
+
+
+class MCTSBot(Player):
+
+    def __init__(self,
+                 game_env: BaseEnv,
+                 max_simulations=1000,
+                 player_id: int = 0,
+                 player_name: str = '') -> None:
+        super().__init__(player_id, player_name)
+
+        evaluator = RandomRolloutEvaluator(n_rollouts=20)
+        self.mcts: DeepMindMCTS = DeepMindMCTS(
+            game_env,
+            uct_c=2,
+            max_simulations=max_simulations,
+            evaluator=evaluator,
+            child_selection_method='puct',
+            add_exploration_noise=True,
+            dirichlet_noise_alpha=1.0,
+            dirichlet_noise_epsilon=0.25,
+            solve=False,
+            verbose=False,
+        )
+
+    def set_player_id(self, player_id):
+        self.player_id = player_id
+
+    def get_player_id(self):
+        return self.player_id
+
+    def get_player_name(self):
+        return self.player_name
+
+    def get_action(self, game_env: BaseEnv, **kwargs):
+        sensible_moves = game_env.leagel_actions()
+        if len(sensible_moves) > 0:
+            action = self.mcts.step(game_env)
+            return action
+        else:
+            print('WARNING: the board is full')
+
+    def __str__(self):
+        return 'DeepMindMCTSBot, id: {}, name: {}.'.format(
+            self.get_player_id(), self.get_player_name())
