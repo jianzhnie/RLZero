@@ -1,5 +1,5 @@
 """Monte-Carlo Tree Search algorithm for game play."""
-
+import copy
 import math
 import time
 from abc import ABC
@@ -46,7 +46,7 @@ class RandomRolloutEvaluator(Evaluator):
         """Returns evaluation on given state."""
         result = None
         for _ in range(self.n_rollouts):
-            working_env = game_env.clone()
+            working_env = copy.deepcopy(game_env)
             while not working_env.is_terminal():
                 legal_actions = working_env.legal_actions(
                     game_env.current_player())
@@ -307,7 +307,7 @@ class MCTSNode(SearchNode):
         current_node: SearchNode = SearchNode(None,
                                               game_env.current_player(),
                                               prior=1.0)
-        working_env = game_env.clone()
+        working_env = copy.deepcopy(game_env)
         while not working_env.is_terminal() and current_node.explore_count > 0:
             if not current_node.children:
                 # choose a child node which has not been visited before
@@ -325,8 +325,7 @@ class MCTSNode(SearchNode):
         Returns:
             -reward (:obj:`int`): reward = ±1 when player 1 wins/loses the game, reward = 0 when it is a tie, reward = None when current node is not a teminal node.
         """
-        current_rollout_env = game_env.clone()
-        # print(current_rollout_env.board)
+        current_rollout_env = copy.deepcopy(game_env)
         while not current_rollout_env.is_terminal():
             possible_actions = current_rollout_env.legal_actions(
                 current_rollout_env.current_player())
@@ -460,7 +459,7 @@ class DeepMindMCTS:
             print('Children:')
             print(root.children_str(game_env))
             if best.children:
-                working_env = game_env.clone()
+                working_env = copy.deepcopy(game_env)
                 working_env.step(best.action)
                 print('Children of chosen:')
                 print(best.children_str(working_env))
@@ -496,7 +495,11 @@ class DeepMindMCTS:
           working_state: The state of the game at the leaf node.
         """
         visit_path = [root]
-        working_env: BaseEnv = game_env.clone()
+        print('game_env: ')
+        print(game_env.legal_actions())
+        working_env = copy.deepcopy(game_env)
+        print('working_env: ')
+        print(working_env.legal_actions())
         current_node: SearchNode = root
         while not working_env.is_terminal() and current_node.explore_count > 0:
             if not current_node.children:
