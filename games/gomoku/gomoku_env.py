@@ -208,8 +208,12 @@ class GomokuEnv(BaseEnv):
         return game_end
 
     def returns(self):
-        """Check whether the game is ended or not."""
+        """Check whether the game is ended or not.
+
+        Total reward for each player over the course of the game so far.
+        """
         win, winner = self.has_a_winner()
+
         if winner == 1:
             return [1, -1]
         elif winner == 2:
