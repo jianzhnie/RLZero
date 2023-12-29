@@ -2,6 +2,7 @@
 Foundation/PettingZoo) to the BaseEnv interface."""
 from __future__ import annotations
 
+import copy
 import os
 from collections import namedtuple
 
@@ -81,7 +82,8 @@ class GoEnv(AECEnv, EzPickle):
 
         self.render_mode = render_mode
         self.screen_width = self.screen_height = screen_height
-
+        self._is_terminal = False
+        self.current_player_index = 0
         if self.render_mode == 'human':
             self.clock = pygame.time.Clock()
 
@@ -145,11 +147,9 @@ class GoEnv(AECEnv, EzPickle):
     def _encode_rewards(self, result) -> list[int]:
         return [1, -1] if result == 1 else [-1, 1]
 
-    @property
     def current_player(self):
         return self.current_player_index
 
-    @property
     def to_play(self):
         return self.current_player_index
 
@@ -183,6 +183,7 @@ class GoEnv(AECEnv, EzPickle):
         self.current_player_index = current_index
 
         if self._go.is_game_over():
+            self._is_terminal = True
             self.terminations = self._convert_to_dict(
                 [True for _ in range(self.num_agents)])
             self.rewards = self._convert_to_dict(
@@ -206,7 +207,6 @@ class GoEnv(AECEnv, EzPickle):
         reward = self._cumulative_rewards[agent]
         done = self.terminations[agent]
         info = self.infos[agent]
-
         return BaseEnvTimestep(observation, reward, done, info)
 
     def reset(self, seed=None, options=None):
@@ -336,28 +336,29 @@ class GoEnv(AECEnv, EzPickle):
             self.rewards[name] = result_val * result_coef
             self.infos[name] = {'legal_moves': []}
 
-    def legal_actions(self):
-        if self._go.is_game_over():
-            self.terminations = self._convert_to_dict(
-                [True for _ in range(self.num_agents)])
-            self.rewards = self._convert_to_dict(
-                self._encode_rewards(self._go.result()))
-            self.next_legal_moves = [self._N * self._N]
-        else:
-            self.next_legal_moves = self._encode_legal_actions(
-                self._go.all_legal_moves())
-
+    def legal_actions(self, agent: str | int = None):
         return self.next_legal_moves
 
-    def get_done_reward(self):
-        done = self.terminations[self.agent_selection]
-        reward = self.rewards[self.agent_selection]
-        return done, reward
+    def max_utility(self):
+        """MAX returns 1, MIN returns -1, otherwise 0.
+
+        Returns:
+            _type_: _description_
+        """
+        return 1
 
     def returns(self):
         """Total reward for each player over the course of the game so far."""
-        reward = self.rewards[self.agent_selection]
-        return reward
+        black_reward = self.rewards['black_0']
+        white_reward = self.rewards['white_0']
+        return [black_reward, white_reward]
+
+    def clone(self):
+        return copy.deepcopy(self)
+
+    def is_terminal(self):
+        """Returns True if the game is over."""
+        return self._is_terminal
 
     def random_action(self):
         action_list = self.legal_actions()
