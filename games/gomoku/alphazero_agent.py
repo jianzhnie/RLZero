@@ -50,7 +50,7 @@ class AlphaZeroAgent(object):
         input: a batch of states
         output: a batch of action probabilities and state values
         """
-        state_batch = torch.FloatTensor(state_batch).to(self.device)
+        state_batch = torch.FloatTensor(np.array(state_batch)).to(self.device)
         log_act_probs, value = self.policy_value_net(state_batch)
         act_probs = np.exp(log_act_probs.detach().cpu().numpy())
         value = value.detach().cpu().numpy()
@@ -60,9 +60,9 @@ class AlphaZeroAgent(object):
         """perform a training step."""
         # train mode
         self.policy_value_net.train()
-        state_batch = torch.FloatTensor(state_batch).to(self.device)
-        mcts_probs = torch.FloatTensor(mcts_probs).to(self.device)
-        target_batch = torch.FloatTensor(target_vs).to(self.device)
+        state_batch = torch.FloatTensor(np.array(state_batch)).to(self.device)
+        mcts_probs = torch.FloatTensor(np.array(mcts_probs)).to(self.device)
+        target_batch = torch.FloatTensor(np.array(target_vs)).to(self.device)
 
         log_act_probs, value = self.policy_value_net(state_batch)
 
