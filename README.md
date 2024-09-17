@@ -12,6 +12,12 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 - https://github.com/Unity-Technologies/ml-agents
 - https://github.com/opendilab/LightZero
 
+### Self-Play
+
+- https://github.com/inspirai/TimeChamber
+- https://github.com/njustesen/botbowl
+- https://github.com/davidADSP/SIMPLE
+
 ### MCTS
 
 https://github.com/masouduut94/MCTS-agent-python
