@@ -6,8 +6,8 @@ import sys
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 sys.path.append('..')
-from games.gomoku import GameControl, GomokuEnv
-from games.gomoku.alphazero_agent import AlphaZeroAgent
+from rlzero.games.gomoku import GameControl, GomokuEnv
+from rlzero.games.gomoku.alphazero_agent import AlphaZeroAgent
 from rlzero.mcts.alphazero_mcts import AlphaZeroPlayer
 from rlzero.mcts.deepmind_mcts import MCTSBot
 from rlzero.mcts.player import HumanPlayer
