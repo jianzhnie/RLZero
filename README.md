@@ -11,6 +11,7 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 - https://github.com/sotetsuk/pgx.git
 - https://github.com/Unity-Technologies/ml-agents
 - https://github.com/opendilab/LightZero
+- https://github.com/datamllab/awesome-game-ai
 
 ### Self-Play
 
