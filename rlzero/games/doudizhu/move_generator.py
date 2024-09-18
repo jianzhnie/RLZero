@@ -1,7 +1,7 @@
 import collections
 import itertools
 
-from douzero.env.utils import MIN_PAIRS, MIN_SINGLE_CARDS, MIN_TRIPLES, select
+from .utils import MIN_PAIRS, MIN_SINGLE_CARDS, MIN_TRIPLES, select
 
 
 class MovesGener(object):
