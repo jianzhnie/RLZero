@@ -54,7 +54,7 @@ class BaseModel(nn.Module):
         z: torch.Tensor,
         x: torch.Tensor,
         return_value: bool = False,
-        flags: Optional[object] = None,
+        exp_epsilon: Optional[float] = None,
     ) -> Dict[str, Union[torch.Tensor, int]]:
         """Forward pass for the BaseModel.
 
@@ -62,7 +62,6 @@ class BaseModel(nn.Module):
             z (torch.Tensor): Sequential input data for the LSTM.
             x (torch.Tensor): Additional input data concatenated after LSTM output.
             return_value (bool): If True, returns values; otherwise, returns predicted action.
-            flags (Optional[object]): Optional flags for exploration strategies.
 
         Returns:
             Dict[str, Union[torch.Tensor, int]]: Output from the respective model's forward method.
@@ -75,12 +74,14 @@ class BaseModel(nn.Module):
         if return_value:
             return dict(values=x)
         else:
-            action = self._select_action(x, flags)
+            action = self._select_action(x, exp_epsilon)
             return dict(action=action)
 
-    def _select_action(self, x: torch.Tensor, flags: Optional[object]) -> int:
-        if (flags is not None and flags.exp_epsilon > 0
-                and np.random.rand() < flags.exp_epsilon):
+    def _select_action(self,
+                       x: torch.Tensor,
+                       exp_epsilon: Optional[float] = None) -> int:
+        if (exp_epsilon is not None and exp_epsilon > 0
+                and np.random.rand() < exp_epsilon):
             return torch.randint(x.shape[0], (1, ))[0]
         else:
             return torch.argmax(x, dim=0)[0]
@@ -90,17 +91,28 @@ class LandlordLstmModel(BaseModel):
     """LSTM-based model for predicting actions or values in a landlord-like
     scenario."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        input_dim: int = 162,
+        special_dim: int = 373,
+        output_dim: int = 512,
+    ) -> None:
         """Initializes the LandlordLstmModel with LSTM and dense layers."""
-        super().__init__(input_dim=162, special_dim=373, output_dim=512)
+        super().__init__(input_dim, special_dim, output_dim)
 
 
 class FarmerLstmModel(BaseModel):
     """LSTM-based model for predicting actions or values in a farmer-like
     scenario."""
 
-    def __init__(self) -> None:
-        super().__init__(input_dim=162, special_dim=484, output_dim=512)
+    def __init__(
+        self,
+        input_dim: int = 162,
+        special_dim: int = 484,
+        output_dim: int = 512,
+    ) -> None:
+        """Initializes the FarmerLstmModel with LSTM and dense layers."""
+        super().__init__(input_dim, special_dim, output_dim)
 
 
 # Dictionary to map different model roles to their respective classes
@@ -142,7 +154,7 @@ class DouDiZhuModel(nn.Module):
         z: torch.Tensor,
         x: torch.Tensor,
         training: bool = False,
-        flags: Optional[object] = None,
+        exp_epsilon: Optional[float] = None,
     ) -> Dict[str, Union[torch.Tensor, int]]:
         """Forward pass for the selected model based on the position (landlord
         or farmer).
@@ -152,13 +164,13 @@ class DouDiZhuModel(nn.Module):
             z (torch.Tensor): Sequential input data for the LSTM.
             x (torch.Tensor): Additional input data concatenated after LSTM output.
             training (bool): Whether the model is in training mode.
-            flags (Optional[object]): Optional flags for exploration strategies.
+            exp_epsilon (Optional[float]): Exploration epsilon for action selection.
 
         Returns:
             Dict[str, Union[torch.Tensor, int]]: Output from the respective model's forward method.
         """
         model = self.models[position]
-        return model.forward(z, x, training, flags)
+        return model.forward(z, x, training, exp_epsilon)
 
     def share_memory(self) -> None:
         """Shares memory for all models, allowing multi-processing in
