@@ -2,7 +2,7 @@ from collections import Counter
 
 import numpy as np
 
-from .game import GameEnv
+from rlzero.games.doudizhu import GameEnv
 
 Card2Column = {
     3: 0,
