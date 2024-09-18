@@ -38,7 +38,7 @@ deck.extend([20, 30])
 class DouDizhuEnv:
     """Doudizhu multi-agent wrapper."""
 
-    def __init__(self, objective):
+    def __init__(self, objective: str = 'wp'):
         """Objective is wp/adp/logadp.
 
         It indicates whether considers bomb in reward calculation. Here, we use

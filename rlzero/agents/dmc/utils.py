@@ -2,14 +2,13 @@ import traceback
 from collections import deque
 from typing import Dict, Iterator, List, Union
 
-import gymnasium as gym
 import numpy as np
 import torch
 from torch import multiprocessing as mp
 from torch import nn
 
 from rlzero.agents.dmc.env_utils import EnvWrapper
-from rlzero.envs.doudizhu.env import _cards2array
+from rlzero.envs.doudizhu.env import DouDizhuEnv, _cards2array
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
 
@@ -179,8 +178,8 @@ def cards2tensor(list_cards: List[int]) -> torch.Tensor:
 
 
 def act(
-    env: gym.Env,
     worker_id: int,
+    objective: str,
     rollout_length: int,
     exp_epsilon: float,
     free_queue: Dict[str, mp.Queue],
@@ -197,8 +196,8 @@ def act(
     for three positions in the game: 'landlord', 'landlord_up', and 'landlord_down'.
 
     Args:
-        env: The environment to interact with
         worker_id: Process index for the actor.
+        objective: The objective of the actor, either wp/adp/logadp.
         rollout_length: The length of the rollout.
         exp_epsilon: The exploration epsilon for the actor.
         free_queue: Queue for getting free buffer indices.
@@ -211,6 +210,12 @@ def act(
 
     env: EnvWrapper = EnvWrapper(env, device)
     try:
+        logger.info('Device %s Actor %i started.', str(device), worker_id)
+
+        # create env
+        env = DouDizhuEnv(objective=objective)
+        env: EnvWrapper = EnvWrapper(env, device)
+
         # Initialize buffers for observations and episode returns
         done_buf = {p: deque(maxlen=rollout_length) for p in positions}
         episode_return_buf = {
