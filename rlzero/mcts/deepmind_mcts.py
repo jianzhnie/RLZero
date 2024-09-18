@@ -6,7 +6,6 @@ from abc import ABC
 from typing import Any, List, Tuple
 
 import numpy as np
-
 from games.base_env import BaseEnv
 
 from .player import Player
