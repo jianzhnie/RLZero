@@ -35,7 +35,7 @@ deck.extend([17 for _ in range(4)])
 deck.extend([20, 30])
 
 
-class DouDizhuEnv:
+class DouDiZhuEnv:
     """Doudizhu multi-agent wrapper."""
 
     def __init__(self, objective: str = 'wp'):

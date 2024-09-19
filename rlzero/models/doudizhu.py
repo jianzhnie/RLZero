@@ -150,17 +150,17 @@ class DouDiZhuModel(nn.Module):
 
     def forward(
         self,
-        position: str,
+        player_id: str,
         z: torch.Tensor,
         x: torch.Tensor,
         training: bool = False,
         exp_epsilon: Optional[float] = None,
     ) -> Dict[str, Union[torch.Tensor, int]]:
-        """Forward pass for the selected model based on the position (landlord
+        """Forward pass for the selected model based on the player_id (landlord
         or farmer).
 
         Args:
-            position (str): Role of the model ('landlord', 'landlord_up', 'landlord_down').
+            player_id (str): Role of the model ('landlord', 'landlord_up', 'landlord_down').
             z (torch.Tensor): Sequential input data for the LSTM.
             x (torch.Tensor): Additional input data concatenated after LSTM output.
             training (bool): Whether the model is in training mode.
@@ -169,7 +169,7 @@ class DouDiZhuModel(nn.Module):
         Returns:
             Dict[str, Union[torch.Tensor, int]]: Output from the respective model's forward method.
         """
-        model = self.models[position]
+        model = self.models[player_id]
         return model.forward(z, x, training, exp_epsilon)
 
     def share_memory(self) -> None:
@@ -183,14 +183,14 @@ class DouDiZhuModel(nn.Module):
         for model in self.models.values():
             model.eval()
 
-    def parameters(self, position: str):
+    def parameters(self, player_id: str):
         """Returns the parameters of the model corresponding to the given
-        position."""
-        return self.models[position].parameters()
+        player_id."""
+        return self.models[player_id].parameters()
 
-    def get_model(self, position: str) -> nn.Module:
-        """Returns the model corresponding to the given position."""
-        return self.models[position]
+    def get_model(self, player_id: str) -> nn.Module:
+        """Returns the model corresponding to the given player_id."""
+        return self.models[player_id]
 
     def get_models(self) -> Dict[str, nn.Module]:
         """Returns a dictionary of all models."""
