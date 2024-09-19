@@ -536,7 +536,7 @@ class DMCAgent:
                     self.free_queue[device][pos].put(m)
 
         # 初始化 threads, locks, position_locks
-        threads, locks, position_locks = [], {}
+        threads, locks = [], {}
         position_locks = {
             'landlord': threading.Lock(),
             'landlord_up': threading.Lock(),
