@@ -8,7 +8,7 @@ import traceback
 from collections import deque
 from queue import Queue
 from threading import Lock
-from typing import Any, Dict, Iterator, List, Union
+from typing import Dict, Iterator, List, Union
 
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ from torch.optim import Optimizer
 from rlzero.agents.dmc.env_utils import EnvWrapper
 from rlzero.agents.dmc.utils import cards2tensor
 from rlzero.agents.rl_args import RLArguments
-from rlzero.envs.doudizhu.env import DouDizhuEnv
+from rlzero.envs.doudizhu.env import DouDiZhuEnv
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
 
@@ -255,12 +255,9 @@ class DMCAgent:
 
         return buffers
 
-    def act(
+    def get_action(
         self,
         worker_id: int,
-        objective: str,
-        rollout_length: int,
-        exp_epsilon: float,
         free_queue: Dict[str, mp.Queue],
         full_queue: Dict[str, mp.Queue],
         model: DouDiZhuModel,
@@ -272,44 +269,39 @@ class DMCAgent:
 
         Args:
             worker_id: Process index for the actor.
-            objective: Objective of the actor (e.g., wp/adp/logadp).
-            rollout_length: Length of the rollout.
-            exp_epsilon: Exploration epsilon for the actor.
             free_queue: Queue for getting free buffer indices.
             full_queue: Queue for passing filled buffer indices to the main process.
-            model: Model used for decision-making in the game.
-            buffers: Shared memory buffers for storing game experiences.
             device: Device name ('cpu' or 'cuda:x') where this actor will run.
         """
 
         try:
             logger.info('Device %s Actor %i started.', str(device), worker_id)
 
-            env = DouDizhuEnv(objective=objective)
+            env = DouDiZhuEnv(objective=self.args.objective)
             env: EnvWrapper = EnvWrapper(env, device)
 
             done_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             episode_return_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             target_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             obs_x_no_action_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             obs_action_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             obs_z_buf = {
-                p: deque(maxlen=rollout_length)
+                p: deque(maxlen=self.args.rollout_length)
                 for p in self.positions
             }
             size = {p: 0 for p in self.positions}
@@ -328,7 +320,7 @@ class DMCAgent:
                             obs['z_batch'],
                             obs['x_batch'],
                             training=False,
-                            exp_epsilon=exp_epsilon,
+                            exp_epsilon=self.args.epsilon_greedy,
                         )
 
                     action_idx = int(
@@ -358,12 +350,12 @@ class DMCAgent:
                         break
 
                 for p in self.positions:
-                    while size[p] >= rollout_length:
+                    while size[p] >= self.args.rollout_length:
                         index = free_queue[p].get()
                         if index is None:
                             break
 
-                        for t in range(rollout_length):
+                        for t in range(self.args.rollout_length):
                             buffers[p]['done'][index][t, ...] = done_buf[p][t]
                             buffers[p]['episode_return'][index][t, ...] = (
                                 episode_return_buf[p][t])
@@ -384,7 +376,7 @@ class DMCAgent:
                         obs_x_no_action_buf[p].popleft()
                         obs_action_buf[p].popleft()
                         obs_z_buf[p].popleft()
-                        size[p] -= rollout_length
+                        size[p] -= self.args.rollout_length
 
         except KeyboardInterrupt:
             logger.info('Actor %i stopped manually.', worker_id)
@@ -426,10 +418,6 @@ class DMCAgent:
         target = torch.flatten(batch['target'].to(device), 0, 1)
 
         episode_returns = batch['episode_return'][batch['done']]
-
-        if position not in self.mean_episode_return_buf:
-            self.mean_episode_return_buf[position] = deque(
-                maxlen=self.args.buffer_size)
 
         self.mean_episode_return_buf[position].append(
             torch.mean(episode_returns).to(device))
@@ -474,33 +462,32 @@ class DMCAgent:
         return nn.functional.mse_loss(pred_values, target)
 
     def batch_and_learn(
-            self,
-            i: int,
-            device: Any,
-            position: str,
-            local_lock: threading.Lock,
-            position_lock: threading.Lock,
-            lock=threading.Lock(),
+        self,
+        thread_id: int,
+        position: str,
+        local_lock: threading.Lock,
+        position_lock: threading.Lock,
+        lock: threading.Lock,
+        device: Union[str, int],
     ) -> None:
         while self.frames < self.args.total_frames:
-            batch = self.get_batch(
+            batch_data = self.get_batch(
                 self.free_queue[device][position],
                 self.full_queue[device][position],
                 self.buffers[device][position],
-                self.args,
                 local_lock,
             )
             learner_stats = self.learn(
                 self.learner_model.get_model(position),
                 self.optimizers[position],
                 position,
-                batch,
+                batch_data,
                 position_lock,
             )
 
             with lock:
-                for k in learner_stats:
-                    self.stata_info[k] = learner_stats[k]
+                for key in learner_stats:
+                    self.stata_info[key] = learner_stats[key]
                 self.frames += self.args.rollout_length * self.args.batch_size
                 self.position_frames[position] += (self.args.rollout_length *
                                                    self.args.batch_size)
@@ -523,39 +510,38 @@ class DMCAgent:
                 'landlord_down': 0
             },
         )
+        # Initialize the actor processes
         ctx = mp.get_context('spawn')
         actor_processes = []
         for device in self.device_iterator:
-            for i in range(self.args.num_actors):
+            for worker_id in range(self.args.num_actors):
                 actor_process = ctx.Process(
-                    target=self.act,
+                    target=self.get_action,
                     args=(
-                        i,
-                        device,
+                        worker_id,
                         self.free_queue[device],
                         self.full_queue[device],
                         self.actor_models[device],
                         self.buffers[device],
-                        self.args,
+                        device,
                     ),
                 )
                 actor_process.start()
                 actor_processes.append(actor_process)
 
+        # 初始化 free_queue
         for device in self.device_iterator:
             for m in range(self.args.num_buffers):
                 for pos in self.positions:
                     self.free_queue[device][pos].put(m)
 
-        threads, locks, position_locks = (
-            [],
-            {},
-            {
-                'landlord': threading.Lock(),
-                'landlord_up': threading.Lock(),
-                'landlord_down': threading.Lock(),
-            },
-        )
+        # 初始化 threads, locks, position_locks
+        threads, locks, position_locks = [], {}
+        position_locks = {
+            'landlord': threading.Lock(),
+            'landlord_up': threading.Lock(),
+            'landlord_down': threading.Lock(),
+        }
 
         for device in self.device_iterator:
             locks[device] = {pos: threading.Lock() for pos in self.positions}
@@ -566,10 +552,10 @@ class DMCAgent:
                         name=f'batch-and-learn-{i}',
                         args=(
                             i,
-                            device,
                             position,
                             locks[device][position],
                             position_locks[position],
+                            device,
                         ),
                     )
                     thread.start()
