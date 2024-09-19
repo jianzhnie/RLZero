@@ -36,30 +36,92 @@ class DMCAgent:
     - Logging and outputting training statistics.
     """
 
-    def __init__(
-        self,
-        positions: List[str] = ['landlord', 'landlord_up', 'landlord_down'],
-        args: RLArguments = RLArguments,
-    ) -> None:
-        """Initialize the DMCAgent.
-
-        Args:
-            actor_models: Dictionary of actor models for each position.
-            optimizers: Dictionary of optimizers for each position.
-            positions: List of positions in the game.
-            args: Command-line arguments.
-        """
+    def __init__(self, args: RLArguments = RLArguments) -> None:
+        self.positions: List[str] = [
+            'landlord', 'landlord_up', 'landlord_down'
+        ]
         self.mean_episode_return_buf = {
             p: deque(maxlen=100)
-            for p in positions
+            for p in self.positions
         }
-        self.positions = positions
-        self.doudizhu_model = DouDiZhuModel(device=args.training_device)
-        self.learner_model = DouDiZhuModel(device=args.training_device)
-        self.optimizers = self.create_optimizers(args.learning_rate,
-                                                 args.momentum, args.epsilon,
-                                                 args.alpha)
         self.args: RLArguments = args
+        self.checkpoint_path = os.path.expandvars(
+            os.path.expanduser(
+                f'{self.args.savedir}/{self.args.project}/model.tar'))
+        self.stata_info_keys = [
+            'loss_landlord',
+            'loss_landlord_up',
+            'loss_landlord_down',
+            'mean_episode_return_landlord',
+            'mean_episode_return_landlord_up',
+            'mean_episode_return_landlord_down',
+        ]
+
+        self.check_and_init_device()
+
+        # Initialize actor models
+        self.init_actor_models()
+
+        # Initialize learner model
+        self.learner_model = DouDiZhuModel(device=self.args.training_device)
+
+        # Initialize buffers
+        self.buffers = self.create_buffers(
+            num_buffers=self.args.num_buffers,
+            rollout_length=self.args.rollout_length,
+            device_iterator=self.device_iterator,
+        )
+        # Initialize Optimizers
+        self.optimizers = self.create_optimizers(
+            learning_rate=self.args.learning_rate,
+            momentum=self.args.momentum,
+            epsilon=self.args.epsilon,
+            alpha=self.args.alpha,
+        )
+
+    def init_actor_models(self) -> None:
+        """Initialize actor models."""
+        self.actor_models = {}
+        for device in self.device_iterator:
+            model = DouDiZhuModel(device=device)
+            model.share_memory()
+            model.eval()
+            self.actor_models[device] = model
+
+    def check_and_init_device(self) -> None:
+        """Check and initialize the device."""
+        if not self.args.actor_device_cpu or self.args.training_device != 'cpu':
+            if not torch.cuda.is_available():
+                raise AssertionError(
+                    'CUDA not available. If you have GPUs, specify their IDs with --gpu_devices. '
+                    'Otherwise, train with CPU using: python3 train.py --actor_device_cpu --training_device cpu'
+                )
+        if self.args.actor_device_cpu:
+            self.device_iterator = ['cpu']
+        else:
+            self.device_iterator = range(self.args.num_actor_devices)
+            assert (
+                self.args.num_actor_devices <= len(
+                    self.args.gpu_devices.split(','))
+            ), 'The number of actor devices can not exceed the number of available devices'
+
+    # Initialize queues
+    def init_queues(self) -> None:
+        ctx = mp.get_context('spawn')
+        self.free_queue = {}
+        self.full_queue = {}
+
+        for device in self.device_iterator:
+            self.free_queue[device] = {
+                'landlord': ctx.SimpleQueue(),
+                'landlord_up': ctx.SimpleQueue(),
+                'landlord_down': ctx.SimpleQueue(),
+            }
+            self.full_queue[device] = {
+                'landlord': ctx.SimpleQueue(),
+                'landlord_up': ctx.SimpleQueue(),
+                'landlord_down': ctx.SimpleQueue(),
+            }
 
     def create_optimizers(
         self,
@@ -68,7 +130,7 @@ class DMCAgent:
         epsilon: float,
         alpha: float,
     ) -> Dict[str, torch.optim.Optimizer]:
-        """Create optimizers for each position.
+        """Create optimizers for each position model.
 
         Args:
             learning_rate: Learning rate for the optimizer.
@@ -77,15 +139,15 @@ class DMCAgent:
             alpha: Alpha for the optimizer.
 
         Returns:
-            Dictionary of optimizers for each position.
+            Dictionary of optimizers for each position model.
         """
         optimizers = {}
 
         for position in self.positions:
-            position_parameters = getattr(self.learner_model,
-                                          position).parameters()
+            model_parameters = getattr(self.learner_model,
+                                       position).parameters()
             optimizer = torch.optim.RMSprop(
-                position_parameters,
+                model_parameters,
                 lr=learning_rate,
                 momentum=momentum,
                 eps=epsilon,
@@ -135,15 +197,15 @@ class DMCAgent:
 
     def create_buffers(
         self,
-        rollout_length: int,
         num_buffers: int,
+        rollout_length: int,
         device_iterator: Iterator[int],
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each position and device.
 
         Args:
-            rollout_length: Length of the rollout.
             num_buffers: Number of buffers to create.
+            rollout_length: Length of the rollout.
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
@@ -411,151 +473,79 @@ class DMCAgent:
         """
         return nn.functional.mse_loss(pred_values, target)
 
-    def train(
-        self,
-        rollout_length: int,
-        batch_size: int,
+    def batch_and_learn(
+            self,
+            i: int,
+            device: Any,
+            position: str,
+            local_lock: threading.Lock,
+            position_lock: threading.Lock,
+            lock=threading.Lock(),
     ) -> None:
+        while self.frames < self.args.total_frames:
+            batch = self.get_batch(
+                self.free_queue[device][position],
+                self.full_queue[device][position],
+                self.buffers[device][position],
+                self.args,
+                local_lock,
+            )
+            learner_stats = self.learn(
+                self.learner_model.get_model(position),
+                self.optimizers[position],
+                position,
+                batch,
+                position_lock,
+            )
+
+            with lock:
+                for k in learner_stats:
+                    self.stata_info[k] = learner_stats[k]
+                self.frames += self.args.rollout_length * self.args.batch_size
+                self.position_frames[position] += (self.args.rollout_length *
+                                                   self.args.batch_size)
+
+    def train(self) -> None:
         """Main function for training.
 
         Initializes necessary components such as buffers, models, optimizers,
         and actors, then spawns subprocesses for actors and threads for
         learning. It also handles logging and checkpointing.
-
-        Args:
-            rollout_length: Length of the rollout.
-            batch_size: Size of the batch for learning.
         """
-        if not self.args.actor_device_cpu or self.args.training_device != 'cpu':
-            if not torch.cuda.is_available():
-                raise AssertionError(
-                    'CUDA not available. If you have GPUs, specify their IDs with --gpu_devices. '
-                    'Otherwise, train with CPU using: python3 train.py --actor_device_cpu --training_device cpu'
-                )
 
-        checkpoint_path = os.path.expandvars(
-            os.path.expanduser(
-                f'{self.args.savedir}/{self.args.xpid}/model.tar'))
-
-        if self.args.actor_device_cpu:
-            device_iterator = ['cpu']
-        else:
-            device_iterator = range(self.args.num_actor_devices)
-            assert self.args.num_actor_devices <= len(
-                self.args.gpu_devices.split(',')
-            ), 'Number of actor devices cannot exceed the available GPU devices'
-
-        models = {
-            device: DouDiZhuModel(device=device).share_memory().eval()
-            for device in device_iterator
-        }
-        buffers = self.create_buffers(self.args, device_iterator)
-
-        ctx = mp.get_context('spawn')
-        free_queue, full_queue = {}, {}
-
-        for device in device_iterator:
-            free_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
-            }
-            full_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
-            }
-
-        learner_model = DouDiZhuModel(device=self.args.training_device)
-        optimizers = self.create_optimizers(self.args, learner_model)
-
-        # Stat Keys
-        stat_keys = [
-            'mean_episode_return_landlord',
-            'loss_landlord',
-            'mean_episode_return_landlord_up',
-            'loss_landlord_up',
-            'mean_episode_return_landlord_down',
-            'loss_landlord_down',
-        ]
-
-        frames, stats, position_frames = (
+        self.frames, self.stata_info, self.position_frames = (
             0,
             {k: 0
-             for k in stat_keys()},
+             for k in self.stata_info_keys()},
             {
                 'landlord': 0,
                 'landlord_up': 0,
                 'landlord_down': 0
             },
         )
-
-        if self.args.load_model and os.path.exists(checkpoint_path):
-            checkpoint_states = torch.load(
-                checkpoint_path,
-                map_location=torch.device(
-                    'cuda' if self.args.training_device != 'cpu' else 'cpu'),
-            )
-            stats = checkpoint_states['stats']
-            frames = checkpoint_states['frames']
-            position_frames = checkpoint_states['position_frames']
-            logger.info(f'Resuming from checkpoint, stats:\n{stats}')
-
+        ctx = mp.get_context('spawn')
         actor_processes = []
-        for device in device_iterator:
+        for device in self.device_iterator:
             for i in range(self.args.num_actors):
                 actor_process = ctx.Process(
                     target=self.act,
                     args=(
                         i,
                         device,
-                        free_queue[device],
-                        full_queue[device],
-                        models[device],
-                        buffers[device],
+                        self.free_queue[device],
+                        self.full_queue[device],
+                        self.actor_models[device],
+                        self.buffers[device],
                         self.args,
                     ),
                 )
                 actor_process.start()
                 actor_processes.append(actor_process)
 
-        def batch_and_learn(
-                i: int,
-                device: Any,
-                position: str,
-                local_lock: threading.Lock,
-                position_lock: threading.Lock,
-                lock=threading.Lock(),
-        ) -> None:
-            nonlocal frames, position_frames, stats
-            while frames < self.args.total_frames:
-                batch = self.get_batch(
-                    free_queue[device][position],
-                    full_queue[device][position],
-                    buffers[device][position],
-                    self.args,
-                    local_lock,
-                )
-                _stats = self.learn(
-                    position,
-                    models,
-                    learner_model.get_model(position),
-                    batch,
-                    optimizers[position],
-                    self.args,
-                    position_lock,
-                )
-
-                with lock:
-                    for k in _stats:
-                        stats[k] = _stats[k]
-                    frames += rollout_length * batch_size
-                    position_frames[position] += rollout_length * batch_size
-
-        for device in device_iterator:
+        for device in self.device_iterator:
             for m in range(self.args.num_buffers):
-                for pos in ['landlord', 'landlord_up', 'landlord_down']:
-                    free_queue[device][pos].put(m)
+                for pos in self.positions:
+                    self.free_queue[device][pos].put(m)
 
         threads, locks, position_locks = (
             [],
@@ -567,15 +557,12 @@ class DMCAgent:
             },
         )
 
-        for device in device_iterator:
-            locks[device] = {
-                pos: threading.Lock()
-                for pos in ['landlord', 'landlord_up', 'landlord_down']
-            }
+        for device in self.device_iterator:
+            locks[device] = {pos: threading.Lock() for pos in self.positions}
             for i in range(self.args.num_threads):
-                for position in ['landlord', 'landlord_up', 'landlord_down']:
+                for position in self.positions:
                     thread = threading.Thread(
-                        target=batch_and_learn,
+                        target=self.batch_and_learn,
                         name=f'batch-and-learn-{i}',
                         args=(
                             i,
@@ -593,8 +580,10 @@ class DMCAgent:
         last_checkpoint_time = timer() - self.args.save_interval * 60
 
         try:
-            while frames < self.args.total_frames:
-                start_frames, position_start_frames = frames, position_frames.copy(
+            while self.frames < self.args.total_frames:
+                start_frames, position_start_frames = (
+                    self.frames,
+                    self.position_frames.copy(),
                 )
                 start_time = timer()
 
@@ -602,30 +591,30 @@ class DMCAgent:
 
                 if timer(
                 ) - last_checkpoint_time > self.args.save_interval * 60:
-                    self.checkpoint(frames)
+                    self.save_checkpoint(self.checkpoint_path)
                     last_checkpoint_time = timer()
 
-                fps = (frames - start_frames) / (timer() - start_time)
+                fps = (self.frames - start_frames) / (timer() - start_time)
                 fps_log.append(fps)
                 fps_avg = np.mean(fps_log)
 
                 position_fps = {
-                    k: (position_frames[k] - position_start_frames[k]) /
+                    k: (self.position_frames[k] - position_start_frames[k]) /
                     (timer() - start_time)
-                    for k in position_frames
+                    for k in self.position_frames
                 }
                 logger.info(
                     'After %i (L:%i U:%i D:%i) frames: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
-                    frames,
-                    position_frames['landlord'],
-                    position_frames['landlord_up'],
-                    position_frames['landlord_down'],
+                    self.frames,
+                    self.position_frames['landlord'],
+                    self.position_frames['landlord_up'],
+                    self.position_frames['landlord_down'],
                     fps,
                     fps_avg,
                     position_fps['landlord'],
                     position_fps['landlord_up'],
                     position_fps['landlord_down'],
-                    pprint.pformat(stats),
+                    pprint.pformat(self.stata_info),
                 )
 
         except KeyboardInterrupt:
@@ -633,14 +622,13 @@ class DMCAgent:
         finally:
             for thread in threads:
                 thread.join()
-            logger.info('Training finished after %d frames.', frames)
-            self.checkpoint(frames)
+            logger.info('Training finished after %d frames.', self.frames)
+            self.save_checkpoint(self.checkpoint_path)
 
-    def checkpoint(self, frames: int, checkpoint_path: str) -> None:
+    def save_checkpoint(self, checkpoint_path: str) -> None:
         """Save model checkpoints.
 
         Args:
-            frames: Number of frames processed.
             checkpoint_path: Path to save the checkpoint.
         """
         if self.args.disable_checkpoint:
@@ -650,15 +638,50 @@ class DMCAgent:
             {
                 'model_state_dict': {
                     k: self.learner_model.get_model(k).state_dict()
-                    for k in ['landlord', 'landlord_up', 'landlord_down']
+                    for k in self.positions
                 },
                 'optimizer_state_dict':
                 {k: self.optimizers[k].state_dict()
-                 for k in self.optimizers},
-                'stats': stats,
-                'args': vars(self.args),
-                'frames': frames,
-                'position_frames': position_frames,
+                 for k in self.positions},
+                'stats': self.stata_info,
+                'frames': self.frames,
+                'position_frames': self.position_frames,
             },
             checkpoint_path,
         )
+        for position in self.positions:
+            model_weights_dir = os.path.expandvars(
+                os.path.expanduser('%s/%s/%s' % (
+                    self.args.savedir,
+                    self.args.project,
+                    position + '_weights_' + str(self.frames) + '.ckpt',
+                )))
+            torch.save(
+                self.learner_model.get_model(position).state_dict(),
+                model_weights_dir)
+
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """Load model checkpoints.
+
+        Args:
+            checkpoint_path: Path to load the checkpoint.
+        """
+        if self.args.load_model and os.path.exists(checkpoint_path):
+            checkpoint_states = torch.load(
+                checkpoint_path,
+                map_location=(f'cuda:{self.args.training_device}' if
+                              self.args.training_device != 'cpu' else 'cpu'),
+            )
+            for key in self.positions:
+                self.learner_model.get_model(key).load_state_dict(
+                    checkpoint_states['model_state_dict'][key])
+                self.optimizers[key].load_state_dict(
+                    checkpoint_states['optimizer_state_dict'][key])
+                for device in self.device_iterator:
+                    self.actor_models[device].get_model(key).load_state_dict(
+                        self.learner_model.get_model(key).state_dict())
+            self.stata_info = checkpoint_states['stata_info']
+            self.frames = checkpoint_states['frames']
+            self.position_frames = checkpoint_states['position_frames']
+            logger.info(
+                f'Resuming preempted job, current stats:\n{self.stata_info}')
