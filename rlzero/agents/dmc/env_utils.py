@@ -22,7 +22,7 @@ class StepResult:
     obs_z: torch.Tensor
 
 
-def _format_observation(
+def format_observation(
     obs: Dict[str, Any], device: Union[str, torch.device]
 ) -> Tuple[str, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
     """Utility function to process observations and move them to the specified
@@ -87,7 +87,7 @@ class EnvWrapper:
             Tuple[str, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: Initial position, observation, and additional state information.
         """
         # Reset the environment and format the initial observation
-        initial_position, initial_obs, x_no_action, z = _format_observation(
+        initial_position, initial_obs, x_no_action, z = format_observation(
             self.env.reset(), self.device)
 
         # Initialize episode return and done flag
@@ -131,7 +131,7 @@ class EnvWrapper:
             self.episode_return = torch.zeros(1, 1)  # Reset episode return
 
         # Format the new observation
-        position, obs, x_no_action, z = _format_observation(obs, self.device)
+        position, obs, x_no_action, z = format_observation(obs, self.device)
 
         # Convert reward and done to tensors
         done_tensor = torch.tensor(done).view(1, 1)

@@ -1,4 +1,3 @@
-import argparse
 import multiprocessing as mp
 import os
 import pprint
@@ -7,6 +6,7 @@ import time
 import timeit
 import traceback
 from collections import deque
+from queue import Queue
 from threading import Lock
 from typing import Any, Dict, Iterator, List, Union
 
@@ -17,6 +17,7 @@ from torch.optim import Optimizer
 
 from rlzero.agents.dmc.env_utils import EnvWrapper
 from rlzero.agents.dmc.utils import cards2tensor
+from rlzero.agents.rl_args import RLArguments
 from rlzero.envs.doudizhu.env import DouDizhuEnv
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
@@ -37,10 +38,8 @@ class DMCAgent:
 
     def __init__(
         self,
-        actor_models: Dict[str, nn.Module],
-        optimizers: Dict[str, Optimizer],
         positions: List[str] = ['landlord', 'landlord_up', 'landlord_down'],
-        args: argparse.Namespace = None,
+        args: RLArguments = RLArguments,
     ) -> None:
         """Initialize the DMCAgent.
 
@@ -50,16 +49,17 @@ class DMCAgent:
             positions: List of positions in the game.
             args: Command-line arguments.
         """
-        self.actor_models = actor_models
-        self.optimizers = optimizers
         self.mean_episode_return_buf = {
             p: deque(maxlen=100)
             for p in positions
         }
         self.positions = positions
-        self.buffer_size = args.buffer_size
         self.doudizhu_model = DouDiZhuModel(device=args.training_device)
-        self.args = args
+        self.learner_model = DouDiZhuModel(device=args.training_device)
+        self.optimizers = self.create_optimizers(args.learning_rate,
+                                                 args.momentum, args.epsilon,
+                                                 args.alpha)
+        self.args: RLArguments = args
 
     def create_optimizers(
         self,
@@ -67,7 +67,6 @@ class DMCAgent:
         momentum: float,
         epsilon: float,
         alpha: float,
-        learner_model: Dict[str, nn.Module],
     ) -> Dict[str, torch.optim.Optimizer]:
         """Create optimizers for each position.
 
@@ -76,16 +75,15 @@ class DMCAgent:
             momentum: Momentum for the optimizer.
             epsilon: Epsilon for the optimizer.
             alpha: Alpha for the optimizer.
-            learner_model: The model with separate parameter groups for each position.
 
         Returns:
             Dictionary of optimizers for each position.
         """
-        positions = ['landlord', 'landlord_up', 'landlord_down']
         optimizers = {}
 
-        for position in positions:
-            position_parameters = getattr(learner_model, position).parameters()
+        for position in self.positions:
+            position_parameters = getattr(self.learner_model,
+                                          position).parameters()
             optimizer = torch.optim.RMSprop(
                 position_parameters,
                 lr=learning_rate,
@@ -96,6 +94,44 @@ class DMCAgent:
             optimizers[position] = optimizer
 
         return optimizers
+
+    def get_batch(
+        self,
+        free_queue: Queue,
+        full_queue: Queue,
+        buffers: Dict[str, torch.Tensor],
+        lock: Lock,
+    ) -> Dict[str, torch.Tensor]:
+        """Samples a batch from the `buffers` using indices retrieved from
+        `full_queue`. After sampling, it frees the indices by sending them to
+        `free_queue`.
+
+        Args:
+            free_queue (Queue): A queue where free buffer indices are placed after being processed.
+            full_queue (Queue): A queue from which buffer indices are retrieved for batch sampling.
+            buffers (Dict[str, torch.Tensor]): A dictionary of tensors containing the data to be batched.
+            lock (Lock): A threading lock to ensure thread-safe access to shared resources.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary containing the sampled batch, with the same keys as `buffers`.
+        """
+
+        # Thread-safe section using the provided lock
+        with lock:
+            # Retrieve a batch of indices from the full_queue
+            indices = [full_queue.get() for _ in range(self.args.batch_size)]
+
+        # Create a batch by stacking the selected elements from each buffer
+        batch = {
+            key: torch.stack([buffers[key][m] for m in indices], dim=1)
+            for key in buffers
+        }
+
+        # Release the indices back to the free_queue for future use
+        for m in indices:
+            free_queue.put(m)
+
+        return batch
 
     def create_buffers(
         self,
@@ -113,13 +149,12 @@ class DMCAgent:
         Returns:
             Dictionary of buffers for each device and position.
         """
-        positions = ['landlord', 'landlord_up', 'landlord_down']
         buffers = {}
 
         for device in device_iterator:
             buffers[device] = {}
 
-            for position in positions:
+            for position in self.positions:
                 feature_dim = 319 if position == 'landlord' else 430
 
                 specs = {
@@ -184,7 +219,6 @@ class DMCAgent:
             buffers: Shared memory buffers for storing game experiences.
             device: Device name ('cpu' or 'cuda:x') where this actor will run.
         """
-        positions = ['landlord', 'landlord_up', 'landlord_down']
 
         try:
             logger.info('Device %s Actor %i started.', str(device), worker_id)
@@ -192,22 +226,31 @@ class DMCAgent:
             env = DouDizhuEnv(objective=objective)
             env: EnvWrapper = EnvWrapper(env, device)
 
-            done_buf = {p: deque(maxlen=rollout_length) for p in positions}
+            done_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in self.positions
+            }
             episode_return_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in positions
+                for p in self.positions
             }
-            target_buf = {p: deque(maxlen=rollout_length) for p in positions}
+            target_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in self.positions
+            }
             obs_x_no_action_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in positions
+                for p in self.positions
             }
             obs_action_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in positions
+                for p in self.positions
             }
-            obs_z_buf = {p: deque(maxlen=rollout_length) for p in positions}
-            size = {p: 0 for p in positions}
+            obs_z_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in self.positions
+            }
+            size = {p: 0 for p in self.positions}
 
             position, obs, env_output = env.initial()
 
@@ -236,7 +279,7 @@ class DMCAgent:
                     position, obs, env_output = env.step(action)
 
                     if env_output['done']:
-                        for p in positions:
+                        for p in self.positions:
                             diff = size[p] - len(target_buf[p])
                             if diff > 0:
                                 done_buf[p].extend([False] * (diff - 1))
@@ -252,7 +295,7 @@ class DMCAgent:
                                 target_buf[p].extend([episode_return] * diff)
                         break
 
-                for p in positions:
+                for p in self.positions:
                     while size[p] >= rollout_length:
                         index = free_queue[p].get()
                         if index is None:
