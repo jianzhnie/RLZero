@@ -65,13 +65,13 @@ class DMCNet(nn.Module):
         x = torch.cat((obs, actions), dim=1)
 
         # Pass the concatenated input through the fully connected layers
-        values = self.fc_layers(
-            x).flatten()  # Flatten the output to a 1D tensor
+        # Flatten the output to a 1D tensor
+        values = self.fc_layers(x).flatten()
 
         return values
 
 
-class DMCAgent(nn.Module):
+class DMCAgent(object):
     """Deep Model-based Control Agent using a neural network (DMCNet) to
     predict Q-values for state-action pairs in a reinforcement learning
     setting. The agent selects actions based on epsilon-greedy policy during
