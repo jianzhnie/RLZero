@@ -9,14 +9,8 @@ class RLArguments:
     # General settings
     project: str = field(default='rlzero',
                          metadata={'help': 'Project name (default: rlzero)'})
-    algo_name: str = field(default='dqn',
+    algo_name: str = field(default='dmc',
                            metadata={'help': 'Algorithm name (default: dqn)'})
-    save_interval: int = field(
-        default=30,
-        metadata={
-            'help': 'Time interval (in minutes) at which to save the model'
-        },
-    )
     objective: str = field(
         default='adp',
         metadata={
@@ -51,11 +45,16 @@ class RLArguments:
         default='douzero_checkpoints',
         metadata={'help': 'Root dir where experiment data will be saved'},
     )
-
+    save_interval: int = field(
+        default=30,
+        metadata={
+            'help': 'Time interval (in minutes) at which to save the model'
+        },
+    )
     # Hyperparameters
-    total_frames: int = field(
+    total_steps: int = field(
         default=100_000_000_000,
-        metadata={'help': 'Total environment frames to train for'},
+        metadata={'help': 'Total environment steps to train for'},
     )
     epsilon_greedy: float = field(
         default=0.01, metadata={'help': 'The probability for exploration'})

@@ -2,12 +2,10 @@ import multiprocessing as mp
 import os
 import pprint
 import threading
-import time
 import timeit
 import traceback
 from collections import deque
 from queue import Queue
-from threading import Lock
 from typing import Dict, Iterator, List, Union
 
 import numpy as np
@@ -163,7 +161,7 @@ class DMCAgent:
         free_queue: Queue,
         full_queue: Queue,
         buffers: Dict[str, torch.Tensor],
-        lock: Lock,
+        lock: threading.Lock,
     ) -> Dict[str, torch.Tensor]:
         """Samples a batch from the `buffers` using indices retrieved from
         `full_queue`. After sampling, it frees the indices by sending them to
@@ -272,6 +270,8 @@ class DMCAgent:
             worker_id: Process index for the actor.
             free_queue: Queue for getting free buffer indices.
             full_queue: Queue for passing filled buffer indices to the main process.
+            model: The model used to get actions from the environment.
+            buffers: Buffers to store experiences.
             device: Device name ('cpu' or 'cuda:x') where this actor will run.
         """
         rollout_length = self.args.rollout_length
@@ -392,7 +392,7 @@ class DMCAgent:
         optimizer: Optimizer,
         player_id: str,
         batch: Dict[str, torch.Tensor],
-        lock: Lock,
+        lock: threading.Lock,
     ) -> Dict[str, Union[float, int]]:
         """Perform a single learning (optimization) step for a given player.
 
@@ -471,7 +471,7 @@ class DMCAgent:
         lock: threading.Lock,
         device: Union[str, int],
     ) -> None:
-        while self.frames < self.args.total_frames:
+        while self.global_step < self.args.total_steps:
             batch_data = self.get_batch(
                 self.free_queue[device][player_id],
                 self.full_queue[device][player_id],
@@ -489,9 +489,9 @@ class DMCAgent:
             with lock:
                 for key in learner_stats:
                     self.stata_info[key] = learner_stats[key]
-                self.frames += self.args.rollout_length * self.args.batch_size
-                self.player_frames[player_id] += (self.args.rollout_length *
-                                                  self.args.batch_size)
+                self.global_step += self.args.rollout_length * self.args.batch_size
+                self.global_player_step[player_id] += (
+                    self.args.rollout_length * self.args.batch_size)
 
     def train(self) -> None:
         """Main function for training.
@@ -501,16 +501,13 @@ class DMCAgent:
         learning. It also handles logging and checkpointing.
         """
 
-        self.frames, self.stata_info, self.player_frames = (
-            0,
-            {k: 0
-             for k in self.stata_info_keys()},
-            {
-                'landlord': 0,
-                'landlord_up': 0,
-                'landlord_down': 0
-            },
-        )
+        self.global_step = 0
+        self.stata_info = {k: 0 for k in self.stata_info_keys()}
+        self.global_player_step = {
+            player_id: 0
+            for player_id in self.player_ids
+        }
+
         # Initialize the actor processes
         ctx = mp.get_context('spawn')
         actor_processes = []
@@ -567,35 +564,35 @@ class DMCAgent:
         last_checkpoint_time = timer() - self.args.save_interval * 60
 
         try:
-            while self.frames < self.args.total_frames:
-                start_frames, player_start_frames = (
-                    self.frames,
-                    self.player_frames.copy(),
+            while self.global_step < self.args.total_steps:
+                current_step, current_player_step = (
+                    self.global_step,
+                    self.global_player_step.copy(),
                 )
                 start_time = timer()
-
-                time.sleep(5)
 
                 if timer(
                 ) - last_checkpoint_time > self.args.save_interval * 60:
                     self.save_checkpoint(self.checkpoint_path)
                     last_checkpoint_time = timer()
 
-                fps = (self.frames - start_frames) / (timer() - start_time)
+                fps = (self.global_step - current_step) / (timer() -
+                                                           start_time)
                 fps_log.append(fps)
                 fps_avg = np.mean(fps_log)
 
                 player_fps = {
-                    k: (self.player_frames[k] - player_start_frames[k]) /
-                    (timer() - start_time)
-                    for k in self.player_frames
+                    player_id:
+                    (self.global_player_step[player_id] -
+                     current_player_step[player_id]) / (timer() - start_time)
+                    for player_id in self.player_ids
                 }
                 logger.info(
-                    'After %i (L:%i U:%i D:%i) frames: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
-                    self.frames,
-                    self.player_frames['landlord'],
-                    self.player_frames['landlord_up'],
-                    self.player_frames['landlord_down'],
+                    'After %i (L:%i U:%i D:%i) steps: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
+                    self.global_step,
+                    self.global_player_step['landlord'],
+                    self.global_player_step['landlord_up'],
+                    self.global_player_step['landlord_down'],
                     fps,
                     fps_avg,
                     player_fps['landlord'],
@@ -609,7 +606,7 @@ class DMCAgent:
         finally:
             for thread in threads:
                 thread.join()
-            logger.info('Training finished after %d frames.', self.frames)
+            logger.info('Training finished after %d steps.', self.global_step)
             self.save_checkpoint(self.checkpoint_path)
 
     def save_checkpoint(self, checkpoint_path: str) -> None:
@@ -632,9 +629,9 @@ class DMCAgent:
                     player_id: self.optimizers[player_id].state_dict()
                     for player_id in self.player_ids
                 },
-                'stats': self.stata_info,
-                'frames': self.frames,
-                'player_frames': self.player_frames,
+                'stata_info': self.stata_info,
+                'global_step': self.global_step,
+                'global_player_step': self.global_player_step,
             },
             checkpoint_path,
         )
@@ -643,7 +640,7 @@ class DMCAgent:
                 os.path.expanduser('%s/%s/%s' % (
                     self.args.savedir,
                     self.args.project,
-                    player_id + '_weights_' + str(self.frames) + '.ckpt',
+                    player_id + '_weights_' + str(self.global_step) + '.ckpt',
                 )))
             torch.save(
                 self.learner_model.get_model(player_id).state_dict(),
@@ -672,7 +669,7 @@ class DMCAgent:
                             self.learner_model.get_model(
                                 player_id).state_dict())
             self.stata_info = checkpoint_states['stata_info']
-            self.frames = checkpoint_states['frames']
-            self.player_frames = checkpoint_states['player_frames']
+            self.global_step = checkpoint_states['global_step']
+            self.global_player_step = checkpoint_states['global_player_step']
             logger.info(
                 f'Resuming preempted job, current stats:\n{self.stata_info}')
