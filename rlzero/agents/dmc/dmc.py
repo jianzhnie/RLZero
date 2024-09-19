@@ -13,6 +13,7 @@ from typing import Dict, Iterator, List, Union
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Optimizer
 
 from rlzero.agents.dmc.env_utils import EnvWrapper
@@ -37,12 +38,12 @@ class DMCAgent:
     """
 
     def __init__(self, args: RLArguments = RLArguments) -> None:
-        self.positions: List[str] = [
+        self.player_ids: List[str] = [
             'landlord', 'landlord_up', 'landlord_down'
         ]
         self.mean_episode_return_buf = {
             p: deque(maxlen=100)
-            for p in self.positions
+            for p in self.player_ids
         }
         self.args: RLArguments = args
         self.checkpoint_path = os.path.expandvars(
@@ -130,7 +131,7 @@ class DMCAgent:
         epsilon: float,
         alpha: float,
     ) -> Dict[str, torch.optim.Optimizer]:
-        """Create optimizers for each position model.
+        """Create optimizers for each player model.
 
         Args:
             learning_rate: Learning rate for the optimizer.
@@ -139,13 +140,13 @@ class DMCAgent:
             alpha: Alpha for the optimizer.
 
         Returns:
-            Dictionary of optimizers for each position model.
+            Dictionary of optimizers for each player model.
         """
         optimizers = {}
 
-        for position in self.positions:
+        for player_id in self.player_ids:
             model_parameters = getattr(self.learner_model,
-                                       position).parameters()
+                                       player_id).parameters()
             optimizer = torch.optim.RMSprop(
                 model_parameters,
                 lr=learning_rate,
@@ -153,7 +154,7 @@ class DMCAgent:
                 eps=epsilon,
                 alpha=alpha,
             )
-            optimizers[position] = optimizer
+            optimizers[player_id] = optimizer
 
         return optimizers
 
@@ -201,7 +202,7 @@ class DMCAgent:
         rollout_length: int,
         device_iterator: Iterator[int],
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
-        """Create buffers for each position and device.
+        """Create buffers for each player and device.
 
         Args:
             num_buffers: Number of buffers to create.
@@ -209,15 +210,15 @@ class DMCAgent:
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
-            Dictionary of buffers for each device and position.
+            Dictionary of buffers for each device and player.
         """
         buffers = {}
 
         for device in device_iterator:
             buffers[device] = {}
 
-            for position in self.positions:
-                feature_dim = 319 if position == 'landlord' else 430
+            for player_id in self.player_ids:
+                feature_dim = 319 if player_id == 'landlord' else 430
 
                 specs = {
                     'done':
@@ -234,7 +235,7 @@ class DMCAgent:
                     dict(size=(rollout_length, 5, 162), dtype=torch.int8),
                 }
 
-                position_buffers: Dict[str, List[torch.Tensor]] = {
+                player_buffers: Dict[str, List[torch.Tensor]] = {
                     key: []
                     for key in specs
                 }
@@ -249,9 +250,9 @@ class DMCAgent:
                             buffer_tensor = (torch.empty(**spec).to(
                                 torch.device('cpu')).share_memory_())
 
-                        position_buffers[key].append(buffer_tensor)
+                        player_buffers[key].append(buffer_tensor)
 
-                buffers[device][position] = position_buffers
+                buffers[device][player_id] = player_buffers
 
         return buffers
 
@@ -273,7 +274,7 @@ class DMCAgent:
             full_queue: Queue for passing filled buffer indices to the main process.
             device: Device name ('cpu' or 'cuda:x') where this actor will run.
         """
-
+        rollout_length = self.args.rollout_length
         try:
             logger.info('Device %s Actor %i started.', str(device), worker_id)
 
@@ -281,42 +282,42 @@ class DMCAgent:
             env: EnvWrapper = EnvWrapper(env, device)
 
             done_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
             episode_return_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
             target_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
             obs_x_no_action_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
             obs_action_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
             obs_z_buf = {
-                p: deque(maxlen=self.args.rollout_length)
-                for p in self.positions
+                p: deque(maxlen=rollout_length)
+                for p in self.player_ids
             }
-            size = {p: 0 for p in self.positions}
+            size = {p: 0 for p in self.player_ids}
 
-            position, obs, env_output = env.initial()
+            player_id, obs, env_output = env.initial()
 
             while True:
                 while True:
-                    obs_x_no_action_buf[position].append(
+                    obs_x_no_action_buf[player_id].append(
                         env_output['obs_x_no_action'])
-                    obs_z_buf[position].append(env_output['obs_z'])
+                    obs_z_buf[player_id].append(env_output['obs_z'])
 
                     with torch.no_grad():
                         agent_output = model.forward(
-                            position,
+                            player_id,
                             obs['z_batch'],
                             obs['x_batch'],
                             training=False,
@@ -326,14 +327,14 @@ class DMCAgent:
                     action_idx = int(
                         agent_output['action'].cpu().detach().numpy())
                     action = obs['legal_actions'][action_idx]
-                    obs_action_buf[position].append(cards2tensor(action))
+                    obs_action_buf[player_id].append(cards2tensor(action))
 
-                    size[position] += 1
+                    size[player_id] += 1
 
-                    position, obs, env_output = env.step(action)
+                    player_id, obs, env_output = env.step(action)
 
                     if env_output['done']:
-                        for p in self.positions:
+                        for p in self.player_ids:
                             diff = size[p] - len(target_buf[p])
                             if diff > 0:
                                 done_buf[p].extend([False] * (diff - 1))
@@ -349,13 +350,13 @@ class DMCAgent:
                                 target_buf[p].extend([episode_return] * diff)
                         break
 
-                for p in self.positions:
-                    while size[p] >= self.args.rollout_length:
+                for p in self.player_ids:
+                    while size[p] >= rollout_length:
                         index = free_queue[p].get()
                         if index is None:
                             break
 
-                        for t in range(self.args.rollout_length):
+                        for t in range(rollout_length):
                             buffers[p]['done'][index][t, ...] = done_buf[p][t]
                             buffers[p]['episode_return'][index][t, ...] = (
                                 episode_return_buf[p][t])
@@ -376,7 +377,7 @@ class DMCAgent:
                         obs_x_no_action_buf[p].popleft()
                         obs_action_buf[p].popleft()
                         obs_z_buf[p].popleft()
-                        size[p] -= self.args.rollout_length
+                        size[p] -= rollout_length
 
         except KeyboardInterrupt:
             logger.info('Actor %i stopped manually.', worker_id)
@@ -389,16 +390,16 @@ class DMCAgent:
         self,
         model: nn.Module,
         optimizer: Optimizer,
-        position: str,
+        player_id: str,
         batch: Dict[str, torch.Tensor],
         lock: Lock,
     ) -> Dict[str, Union[float, int]]:
-        """Perform a single learning (optimization) step for a given position.
+        """Perform a single learning (optimization) step for a given player.
 
         Args:
             model: The learner's model to be optimized.
             optimizer: The optimizer used to update the model.
-            position: The position in the game ('landlord', 'landlord_up', or 'landlord_down').
+            player: The player in the game ('landlord', 'landlord_up', or 'landlord_down').
             batch: A batch of experiences from the environment.
             lock: Lock object to synchronize updates across threads.
 
@@ -419,7 +420,7 @@ class DMCAgent:
 
         episode_returns = batch['episode_return'][batch['done']]
 
-        self.mean_episode_return_buf[position].append(
+        self.mean_episode_return_buf[player_id].append(
             torch.mean(episode_returns).to(device))
 
         with lock:
@@ -427,12 +428,12 @@ class DMCAgent:
             loss = self.compute_loss(learner_outputs['values'], target)
 
             stats = {
-                f'mean_episode_return_{position}':
+                f'mean_episode_return_{player_id}':
                 torch.mean(
                     torch.stack([
-                        _r for _r in self.mean_episode_return_buf[position]
+                        _r for _r in self.mean_episode_return_buf[player_id]
                     ])).item(),
-                f'loss_{position}':
+                f'loss_{player_id}':
                 loss.item(),
             }
 
@@ -443,7 +444,7 @@ class DMCAgent:
             optimizer.step()
 
             for actor_model in self.actor_models.values():
-                actor_model.get_model(position).load_state_dict(
+                actor_model.get_model(player_id).load_state_dict(
                     model.state_dict())
 
         return stats
@@ -459,38 +460,38 @@ class DMCAgent:
         Returns:
             Loss tensor.
         """
-        return nn.functional.mse_loss(pred_values, target)
+        return F.mse_loss(pred_values, target, reduction='mean')
 
     def batch_and_learn(
         self,
         thread_id: int,
-        position: str,
+        player_id: str,
         local_lock: threading.Lock,
-        position_lock: threading.Lock,
+        player_lock: threading.Lock,
         lock: threading.Lock,
         device: Union[str, int],
     ) -> None:
         while self.frames < self.args.total_frames:
             batch_data = self.get_batch(
-                self.free_queue[device][position],
-                self.full_queue[device][position],
-                self.buffers[device][position],
+                self.free_queue[device][player_id],
+                self.full_queue[device][player_id],
+                self.buffers[device][player_id],
                 local_lock,
             )
             learner_stats = self.learn(
-                self.learner_model.get_model(position),
-                self.optimizers[position],
-                position,
+                self.learner_model.get_model(player_id),
+                self.optimizers[player_id],
+                player_id,
                 batch_data,
-                position_lock,
+                player_lock,
             )
 
             with lock:
                 for key in learner_stats:
                     self.stata_info[key] = learner_stats[key]
                 self.frames += self.args.rollout_length * self.args.batch_size
-                self.position_frames[position] += (self.args.rollout_length *
-                                                   self.args.batch_size)
+                self.player_frames[player_id] += (self.args.rollout_length *
+                                                  self.args.batch_size)
 
     def train(self) -> None:
         """Main function for training.
@@ -500,7 +501,7 @@ class DMCAgent:
         learning. It also handles logging and checkpointing.
         """
 
-        self.frames, self.stata_info, self.position_frames = (
+        self.frames, self.stata_info, self.player_frames = (
             0,
             {k: 0
              for k in self.stata_info_keys()},
@@ -532,29 +533,29 @@ class DMCAgent:
         # 初始化 free_queue
         for device in self.device_iterator:
             for m in range(self.args.num_buffers):
-                for pos in self.positions:
+                for pos in self.player_ids:
                     self.free_queue[device][pos].put(m)
 
-        # 初始化 threads, locks, position_locks
+        # 初始化 threads, locks, player_locks
         threads, locks = [], {}
-        position_locks = {
+        player_locks = {
             'landlord': threading.Lock(),
             'landlord_up': threading.Lock(),
             'landlord_down': threading.Lock(),
         }
 
         for device in self.device_iterator:
-            locks[device] = {pos: threading.Lock() for pos in self.positions}
+            locks[device] = {pos: threading.Lock() for pos in self.player_ids}
             for i in range(self.args.num_threads):
-                for position in self.positions:
+                for player_id in self.player_ids:
                     thread = threading.Thread(
                         target=self.batch_and_learn,
                         name=f'batch-and-learn-{i}',
                         args=(
                             i,
-                            position,
-                            locks[device][position],
-                            position_locks[position],
+                            player_id,
+                            locks[device][player_id],
+                            player_locks[player_id],
                             device,
                         ),
                     )
@@ -567,9 +568,9 @@ class DMCAgent:
 
         try:
             while self.frames < self.args.total_frames:
-                start_frames, position_start_frames = (
+                start_frames, player_start_frames = (
                     self.frames,
-                    self.position_frames.copy(),
+                    self.player_frames.copy(),
                 )
                 start_time = timer()
 
@@ -584,22 +585,22 @@ class DMCAgent:
                 fps_log.append(fps)
                 fps_avg = np.mean(fps_log)
 
-                position_fps = {
-                    k: (self.position_frames[k] - position_start_frames[k]) /
+                player_fps = {
+                    k: (self.player_frames[k] - player_start_frames[k]) /
                     (timer() - start_time)
-                    for k in self.position_frames
+                    for k in self.player_frames
                 }
                 logger.info(
                     'After %i (L:%i U:%i D:%i) frames: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
                     self.frames,
-                    self.position_frames['landlord'],
-                    self.position_frames['landlord_up'],
-                    self.position_frames['landlord_down'],
+                    self.player_frames['landlord'],
+                    self.player_frames['landlord_up'],
+                    self.player_frames['landlord_down'],
                     fps,
                     fps_avg,
-                    position_fps['landlord'],
-                    position_fps['landlord_up'],
-                    position_fps['landlord_down'],
+                    player_fps['landlord'],
+                    player_fps['landlord_up'],
+                    player_fps['landlord_down'],
                     pprint.pformat(self.stata_info),
                 )
 
@@ -623,27 +624,29 @@ class DMCAgent:
         torch.save(
             {
                 'model_state_dict': {
-                    k: self.learner_model.get_model(k).state_dict()
-                    for k in self.positions
+                    player_id:
+                    self.learner_model.get_model(player_id).state_dict()
+                    for player_id in self.player_ids
                 },
-                'optimizer_state_dict':
-                {k: self.optimizers[k].state_dict()
-                 for k in self.positions},
+                'optimizer_state_dict': {
+                    player_id: self.optimizers[player_id].state_dict()
+                    for player_id in self.player_ids
+                },
                 'stats': self.stata_info,
                 'frames': self.frames,
-                'position_frames': self.position_frames,
+                'player_frames': self.player_frames,
             },
             checkpoint_path,
         )
-        for position in self.positions:
+        for player_id in self.player_ids:
             model_weights_dir = os.path.expandvars(
                 os.path.expanduser('%s/%s/%s' % (
                     self.args.savedir,
                     self.args.project,
-                    position + '_weights_' + str(self.frames) + '.ckpt',
+                    player_id + '_weights_' + str(self.frames) + '.ckpt',
                 )))
             torch.save(
-                self.learner_model.get_model(position).state_dict(),
+                self.learner_model.get_model(player_id).state_dict(),
                 model_weights_dir)
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
@@ -658,16 +661,18 @@ class DMCAgent:
                 map_location=(f'cuda:{self.args.training_device}' if
                               self.args.training_device != 'cpu' else 'cpu'),
             )
-            for key in self.positions:
-                self.learner_model.get_model(key).load_state_dict(
-                    checkpoint_states['model_state_dict'][key])
-                self.optimizers[key].load_state_dict(
-                    checkpoint_states['optimizer_state_dict'][key])
+            for player_id in self.player_ids:
+                self.learner_model.get_model(player_id).load_state_dict(
+                    checkpoint_states['model_state_dict'][player_id])
+                self.optimizers[player_id].load_state_dict(
+                    checkpoint_states['optimizer_state_dict'][player_id])
                 for device in self.device_iterator:
-                    self.actor_models[device].get_model(key).load_state_dict(
-                        self.learner_model.get_model(key).state_dict())
+                    self.actor_models[device].get_model(
+                        player_id).load_state_dict(
+                            self.learner_model.get_model(
+                                player_id).state_dict())
             self.stata_info = checkpoint_states['stata_info']
             self.frames = checkpoint_states['frames']
-            self.position_frames = checkpoint_states['position_frames']
+            self.player_frames = checkpoint_states['player_frames']
             logger.info(
                 f'Resuming preempted job, current stats:\n{self.stata_info}')

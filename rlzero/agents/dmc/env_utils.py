@@ -14,7 +14,7 @@ import torch
 
 @dataclass
 class StepResult:
-    position: Any
+    player_id: str
     obs: Dict[str, Any]
     done: torch.Tensor
     episode_return: torch.Tensor
@@ -23,19 +23,19 @@ class StepResult:
 
 
 def format_observation(
-    obs: Dict[str, Any], device: Union[str, torch.device]
+    observation: Dict[str, Any], device: Union[str, torch.device]
 ) -> Tuple[str, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
     """Utility function to process observations and move them to the specified
     device (CPU or CUDA).
 
     Args:
-        obs (Dict[str, Any]): The observation from the environment, containing 'position', 'x_batch', 'z_batch', etc.
+        obs (Dict[str, Any]): The observation from the environment, containing 'player', 'x_batch', 'z_batch', etc.
         device (Union[str, torch.device]): The device to move the data to, either 'cpu' or 'cuda'.
 
     Returns:
         Tuple[str, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]: Processed observation with tensors moved to the specified device.
     """
-    position = obs['position']
+    player_id = observation['player_id']
 
     # Ensure the device is correctly formatted
     if device != 'cpu':
@@ -43,18 +43,19 @@ def format_observation(
     device = torch.device(device)
 
     # Move observations to the specified device
-    x_batch = torch.from_numpy(obs['x_batch']).to(device)
-    z_batch = torch.from_numpy(obs['z_batch']).to(device)
-    x_no_action = torch.from_numpy(obs['x_no_action'])  # Not moved to device
-    z = torch.from_numpy(obs['z'])  # Not moved to device
+    x_batch = torch.from_numpy(observation['x_batch']).to(device)
+    z_batch = torch.from_numpy(observation['z_batch']).to(device)
+    x_no_action = torch.from_numpy(
+        observation['x_no_action'])  # Not moved to device
+    z = torch.from_numpy(observation['z'])  # Not moved to device
 
     # Return formatted observation
     formatted_obs = {
         'x_batch': x_batch,
         'z_batch': z_batch,
-        'legal_actions': obs['legal_actions'],
+        'legal_actions': observation['legal_actions'],
     }
-    return position, formatted_obs, x_no_action, z
+    return player_id, formatted_obs, x_no_action, z
 
 
 class EnvWrapper:
@@ -84,10 +85,10 @@ class EnvWrapper:
         state.
 
         Returns:
-            Tuple[str, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: Initial position, observation, and additional state information.
+            Tuple[str, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: Initial player, observation, and additional state information.
         """
         # Reset the environment and format the initial observation
-        initial_position, initial_obs, x_no_action, z = format_observation(
+        initial_player_id, initial_obs, x_no_action, z = format_observation(
             self.env.reset(), self.device)
 
         # Initialize episode return and done flag
@@ -95,7 +96,7 @@ class EnvWrapper:
         initial_done = torch.ones(1, 1, dtype=torch.bool)
 
         return (
-            initial_position,
+            initial_player_id,
             initial_obs,
             {
                 'done': initial_done,
@@ -116,10 +117,10 @@ class EnvWrapper:
             action (torch.Tensor): The action to be taken in the environment.
 
         Returns:
-            Tuple[str, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: The new position, observation, and additional state information.
+            Tuple[str, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: The new player, observation, and additional state information.
         """
         # Take a step in the environment
-        obs, reward, done, _ = self.env.step(action)
+        original_obs, reward, done, _ = self.env.step(action)
 
         # Update the cumulative reward
         self.episode_return += reward
@@ -127,17 +128,18 @@ class EnvWrapper:
 
         # Reset environment if the episode is finished
         if done:
-            obs = self.env.reset()  # Reset environment
+            original_obs = self.env.reset()  # Reset environment
             self.episode_return = torch.zeros(1, 1)  # Reset episode return
 
         # Format the new observation
-        position, obs, x_no_action, z = format_observation(obs, self.device)
+        player_id, obs, x_no_action, z = format_observation(
+            original_obs, self.device)
 
         # Convert reward and done to tensors
         done_tensor = torch.tensor(done).view(1, 1)
 
         return (
-            position,
+            player_id,
             obs,
             {
                 'done': done_tensor,
