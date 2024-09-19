@@ -186,7 +186,7 @@ class DMCAgent(nn.Module):
         obs = np.repeat(obs[np.newaxis, :], len(action_keys), axis=0)
 
         # Predict Q-values
-        values = self.net(
+        values = self.net.forward(
             torch.from_numpy(obs).to(self.device),
             torch.from_numpy(action_values).to(self.device),
         )
