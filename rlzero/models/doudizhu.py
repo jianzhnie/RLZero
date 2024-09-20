@@ -150,7 +150,8 @@ class DouDiZhuModel(nn.Module):
                                                      special_dim=484,
                                                      output_dim=512).to(device)
         self.models['landlord_down'] = FarmerLstmModel(
-            input_dim=162, hidden_dim=128, special_dim=484, output_dim=512).to(device)
+            input_dim=162, hidden_dim=128, special_dim=484,
+            output_dim=512).to(device)
 
     def forward(
         self,
@@ -173,7 +174,7 @@ class DouDiZhuModel(nn.Module):
         Returns:
             Dict[str, Union[torch.Tensor, int]]: Output from the respective model's forward method.
         """
-        model:BaseModel = self.models[player_id]
+        model: BaseModel = self.models[player_id]
         return model.forward(z, x, training, exp_epsilon)
 
     def share_memory(self) -> None:

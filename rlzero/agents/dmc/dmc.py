@@ -21,7 +21,7 @@ from rlzero.envs.doudizhu.env import DouDiZhuEnv
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
 
-logger = get_logger("rlzero")
+logger = get_logger('rlzero')
 
 
 class DistributedDouZero(object):
