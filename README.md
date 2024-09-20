@@ -4,6 +4,25 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 
 ## References
 
+### Distributed RL Algorithms
+
+- IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures
+- Ape-X: Distributed Prioritized Experience Replay
+- DD-PPO: Learning Near-Perfect PointGoal Navigators from 2.5 Billion Frames
+- APPO: Sample Factory: Egocentric 3D Control from Pixels at 100000 FPS with Asynchronous Reinforcement Learning
+- SEED RL: Scalable and Efficient Deep-RL with Accelerated Central Inference
+- TorchBeast: A PyTorch Platform for Distributed RL
+
+### Distributed RL Libraries
+
+- https://github.com/facebookresearch/torchbeast
+- https://github.com/ray-project/ray
+- https://github.com/alex-petrenko/sample-factory
+
+### Distributed RL Blogs
+
+- https://joseluisc99.github.io/posts/distributed-reinforcement-learning-a-draft/
+
 ### Unified Toolkits
 
 - https://github.com/datamllab/rlcard
@@ -49,8 +68,6 @@ https://github.com/masouduut94/MCTS-agent-python
 
 - https://medium.com/applied-data-science/alphago-zero-explained-in-one-diagram-365f5abf67e0
 
-- https://bbs.huaweicloud.com/blogs/384922
-
 - http://xtf615.com/categories/%E5%BC%BA%E5%8C%96%E5%AD%A6%E4%B9%A0/
 
 - [How to Build Your Own MuZero Using Python (Part 1/3)](https://medium.com/applied-data-science/how-to-build-your-own-muzero-in-python-f77d5718061a)
@@ -58,27 +75,3 @@ https://github.com/masouduut94/MCTS-agent-python
 - [How to Build Your Own MuZero Using Python (Part 2/3)](https://medium.com/applied-data-science/how-to-build-your-own-deepmind-muzero-in-python-part-2-3-f99dad7a7ad)
 
 - [How to Build Your Own MuZero Using Python (Part 3/3)](https://medium.com/applied-data-science/how-to-build-your-own-deepmind-muzero-in-python-part-3-3-ccea6b03538b)
-
-- [使用AlphaZero算法打造属于你自己的象棋AI!](https://aistudio.baidu.com/projectdetail/4215743?channelType=0&channel=0)
-
-- [用飞桨框架2.0造一个会下五子棋的AI模型](https://aistudio.baidu.com/projectdetail/1403398?channelType=0&channel=0)
-
-- [AlphaZero实现Connect4游戏](https://aistudio.baidu.com/projectdetail/2253753?channelType=0&channel=0)
-
-- [极简MuZero算法实践——Paddle2.0版本](https://aistudio.baidu.com/projectdetail/1448859?channelType=0&channel=0)
-
-### MCTS 的前沿动态
-
-[如何追踪 MCTS 的前沿动态？（1）](https://zhuanlan.zhihu.com/p/633462726)
-[如何追踪 MCTS 的前沿动态？（2）](https://zhuanlan.zhihu.com/p/635570518)
-[如何追踪 MCTS 的前沿动态？（3）](https://zhuanlan.zhihu.com/p/641713866)
-[如何追踪 MCTS 的前沿动态？（4）](https://zhuanlan.zhihu.com/p/643382412)
-
-______________________________________________________________________
-
-[MCTS + RL 系列技术博客（1）：AlphaZero](https://zhuanlan.zhihu.com/p/650009275)
-[MCTS + RL 系列技术博客（2）：MuZero](https://zhuanlan.zhihu.com/p/654059774)
-[MCTS + RL 系列技术博客（3）：Sampled MuZero](https://zhuanlan.zhihu.com/p/657484426)
-[MCTS + RL 系列技术博客（4）：EfficientZero](https://zhuanlan.zhihu.com/p/662943334)
-[MCTS + RL 系列技术博客（5）：Stochastic MuZero](https://zhuanlan.zhihu.com/p/664542805)
-[MCTS + RL 系列技术博客（6）：浅析 MCTS 算法原理演进史](https://zhuanlan.zhihu.com/p/670885213)
