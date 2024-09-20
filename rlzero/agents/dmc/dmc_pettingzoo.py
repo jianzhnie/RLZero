@@ -17,8 +17,7 @@ from torch import multiprocessing as mp
 from torch.optim import Optimizer
 
 from rlzero.agents.rl_args import RLArguments
-from rlzero.models.dcm_pettingzoo import DMCModelPettingZoo
-from rlzero.models.dmc_model import DMCModel
+from rlzero.models import DMCAgent, DMCModel, DMCModelPettingZoo
 from rlzero.utils.logger_utils import get_logger
 
 logger = get_logger('rlzero')
@@ -82,7 +81,7 @@ class DMCTrainerPettingzoo(object):
         self.init_actor_models()
 
         # Initialize learner model
-        self.learner_model = self.model_func(self.training_device)
+        self.learner_model = self.model_func(self.args.training_device)
 
         # Initialize buffers
         self.buffers = self.create_buffers(self.device_iterator)
@@ -190,47 +189,13 @@ class DMCTrainerPettingzoo(object):
 
         return optimizers
 
-    def get_batch(
-        self,
-        free_queue: Queue,
-        full_queue: Queue,
-        buffers: Dict[str, torch.Tensor],
-        lock: threading.Lock,
-    ) -> Dict[str, torch.Tensor]:
-        """Samples a batch from the `buffers` using indices retrieved from
-        `full_queue`. After sampling, it frees the indices by sending them to
-        `free_queue`.
-
-        Args:
-            free_queue (Queue): A queue where free buffer indices are placed after being processed.
-            full_queue (Queue): A queue from which buffer indices are retrieved for batch sampling.
-            buffers (Dict[str, torch.Tensor]): A dictionary of tensors containing the data to be batched.
-            lock (Lock): A threading lock to ensure thread-safe access to shared resources.
-
-        Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the sampled batch, with the same keys as `buffers`.
-        """
-
-        # Thread-safe section using the provided lock
-        with lock:
-            # Retrieve a batch of indices from the full_queue
-            indices = [full_queue.get() for _ in range(self.args.batch_size)]
-
-        # Create a batch by stacking the selected elements from each buffer
-        batch = {
-            key: torch.stack([buffers[key][m] for m in indices], dim=1)
-            for key in buffers
-        }
-
-        # Release the indices back to the free_queue for future use
-        for m in indices:
-            free_queue.put(m)
-
-        return batch
-
     def create_buffers(
-        self, rollout_length: int, num_buffers: int, state_shape: Tuple[int],
-        action_shape: Tuple[int], device_iterator: Iterator[int]
+        self,
+        rollout_length: int,
+        num_buffers: int,
+        state_shape: Tuple[int],
+        action_shape: Tuple[int],
+        device_iterator: Iterator[int],
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each player and device.
 
@@ -266,10 +231,7 @@ class DMCTrainerPettingzoo(object):
                          dtype=torch.int8),
                 }
 
-                player_buffers: Dict[str, List[torch.Tensor]] = {
-                    key: []
-                    for key in specs
-                }
+                player_buffers = {key: [] for key in specs}
 
                 # Create buffers for each player
                 for _ in range(num_buffers):
@@ -327,10 +289,7 @@ class DMCTrainerPettingzoo(object):
                          dtype=torch.int8),
                 }
 
-                player_buffers: Dict[str, List[torch.Tensor]] = {
-                    key: []
-                    for key in specs
-                }
+                player_buffers = {key: [] for key in specs}
 
                 # Create buffers for each player
                 for _ in range(num_buffers):
@@ -348,6 +307,44 @@ class DMCTrainerPettingzoo(object):
                 buffers[device][agent_name] = player_buffers
 
         return buffers
+
+    def get_batch(
+        self,
+        free_queue: Queue,
+        full_queue: Queue,
+        buffers: Dict[str, torch.Tensor],
+        lock: threading.Lock,
+    ) -> Dict[str, torch.Tensor]:
+        """Samples a batch from the `buffers` using indices retrieved from
+        `full_queue`. After sampling, it frees the indices by sending them to
+        `free_queue`.
+
+        Args:
+            free_queue (Queue): A queue where free buffer indices are placed after being processed.
+            full_queue (Queue): A queue from which buffer indices are retrieved for batch sampling.
+            buffers (Dict[str, torch.Tensor]): A dictionary of tensors containing the data to be batched.
+            lock (Lock): A threading lock to ensure thread-safe access to shared resources.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary containing the sampled batch, with the same keys as `buffers`.
+        """
+
+        # Thread-safe section using the provided lock
+        with lock:
+            # Retrieve a batch of indices from the full_queue
+            indices = [full_queue.get() for _ in range(self.args.batch_size)]
+
+        # Create a batch by stacking the selected elements from each buffer
+        batch = {
+            key: torch.stack([buffers[key][m] for m in indices], dim=1)
+            for key in buffers
+        }
+
+        # Release the indices back to the free_queue for future use
+        for m in indices:
+            free_queue.put(m)
+
+        return batch
 
     def get_action(
         self,
@@ -377,29 +374,29 @@ class DMCTrainerPettingzoo(object):
 
             done_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in range(self.env.num_players)
+                for p in range(self.num_players)
             }
             episode_return_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in range(self.env.num_players)
+                for p in range(self.num_players)
             }
             target_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in range(self.env.num_players)
+                for p in range(self.num_players)
             }
             state_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in range(self.env.num_players)
+                for p in range(self.num_players)
             }
             action_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in range(self.env.num_players)
+                for p in range(self.num_players)
             }
-            size = {p: 0 for p in range(self.env.num_players)}
+            size = {p: 0 for p in range(self.num_players)}
 
             while True:
                 trajectories, payoffs = self.env.run(is_training=True)
-                for p in range(self.env.num_players):
+                for p in range(self.num_players):
                     size[p] += len(trajectories[p][:-1]) // 2
                     diff = size[p] - len(target_buf[p])
                     if diff > 0:
@@ -563,7 +560,7 @@ class DMCTrainerPettingzoo(object):
 
     def learn(
         self,
-        model: nn.Module,
+        agent: DMCAgent,
         optimizer: Optimizer,
         player_id: str,
         batch: Dict[str, torch.Tensor],
@@ -584,23 +581,17 @@ class DMCTrainerPettingzoo(object):
         device = torch.device(f'cuda:{self.args.training_device}'
                               if self.args.training_device != 'cpu' else 'cpu')
 
-        obs_x_no_action = batch['obs_x_no_action'].to(device)
-        obs_action = batch['obs_action'].to(device)
-
-        obs_x = torch.cat((obs_x_no_action, obs_action), dim=2).float()
-        obs_x = torch.flatten(obs_x, 0, 1)
-
-        obs_z = torch.flatten(batch['obs_z'].to(device), 0, 1).float()
+        state = torch.flatten(batch['state'].to(device), 0, 1).float()
+        action = torch.flatten(batch['action'].to(device), 0, 1).float()
         target = torch.flatten(batch['target'].to(device), 0, 1)
-
         episode_returns = batch['episode_return'][batch['done']]
 
         self.mean_episode_return_buf[player_id].append(
             torch.mean(episode_returns).to(device))
 
         with lock:
-            learner_outputs = model(obs_z, obs_x, return_value=True)
-            loss = self.compute_loss(learner_outputs['values'], target)
+            values = agent.forward(state, action)
+            loss = self.compute_loss(values, target)
 
             stats = {
                 f'mean_episode_return_{player_id}':
@@ -614,13 +605,13 @@ class DMCTrainerPettingzoo(object):
 
             optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(),
+            nn.utils.clip_grad_norm_(agent.parameters(),
                                      self.args.max_grad_norm)
             optimizer.step()
 
             for actor_model in self.actor_models.values():
-                actor_model.get_model(player_id).load_state_dict(
-                    model.state_dict())
+                actor_model.get_agent(player_id).load_state_dict(
+                    agent.state_dict())
 
         return stats
 
@@ -664,7 +655,7 @@ class DMCTrainerPettingzoo(object):
                 local_lock,
             )
             learner_stats = self.learn(
-                self.learner_model.get_model(player_id),
+                self.learner_model.get_agent(player_id),
                 self.optimizers[player_id],
                 player_id,
                 batch_data,
