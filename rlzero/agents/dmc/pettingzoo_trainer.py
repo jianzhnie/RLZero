@@ -5,7 +5,7 @@ import timeit
 import traceback
 from collections import deque
 from queue import Queue
-from typing import Dict, Iterator, List, Tuple, Union
+from typing import Dict, Iterator, List, Union
 
 import numpy as np
 import torch
@@ -49,23 +49,33 @@ class DMCTrainerPettingzoo(object):
         self.is_pettingzoo_env = is_pettingzoo_env
         if not self.is_pettingzoo_env:
             self.num_players = env.num_players
-            self.action_shape = env.action_shape
-            if self.action_shape[0] is None:  # One-hot encoding
-                self.action_shape = [[self.env.num_actions]
-                                     for _ in range(self.num_players)]
+            self.state_shapes = env.state_shape
+            self.action_shapes = env.action_shape
+            if self.action_shapes[0] is None:  # One-hot encoding
+                self.action_shapes = [[self.env.num_actions]
+                                      for _ in range(self.num_players)]
 
             def model_func(device) -> DMCModel:
                 return DMCModel(
-                    self.env.state_shape,
-                    self.action_shape,
+                    state_shapes=self.state_shapes,
+                    action_shapes=self.action_shapes,
                     exp_epsilon=self.args.epsilon_greedy,
                     device=str(device),
                 )
         else:
             self.num_players = self.env.num_agents
+            self.state_shapes = {}
+            self.action_shapes = {}
+            for player_id in range(self.num_players):
+                agent_name = self.env.agents[player_id]
+                state_shape = self.env.observation_space(
+                    agent_name)['observation'].shape
+                action_shape = self.env.action_space(agent_name).n
+                self.state_shapes[player_id] = state_shape
+                self.action_shapes[player_id] = action_shape
 
             def model_func(device) -> DMCModelPettingZoo:
-                return DMCModelPettingZoo(self.env,
+                return DMCModelPettingZoo(env=self.env,
                                           exp_epsilon=self.args.epsilon_greedy,
                                           device=device)
 
@@ -77,6 +87,9 @@ class DMCTrainerPettingzoo(object):
 
         self.args: RLArguments = args
         self.check_and_init_device()
+        self.build_trainer()
+
+    def build_trainer(self) -> None:
         # Initialize actor models
         self.init_actor_models()
 
@@ -84,7 +97,21 @@ class DMCTrainerPettingzoo(object):
         self.learner_model = self.model_func(self.args.training_device)
 
         # Initialize buffers
-        self.buffers = self.create_buffers(self.device_iterator)
+        if not self.is_pettingzoo_env:
+            self.buffers = self.create_buffers(
+                rollout_length=self.args.rollout_length,
+                num_buffers=self.args.num_buffers,
+                state_shape=self.state_shapes,
+                action_shape=self.action_shapes,
+                device_iterator=self.device_iterator,
+            )
+        else:
+            self.buffers = self.create_buffers_pettingzoo(
+                rollout_length=self.args.rollout_length,
+                num_buffers=self.args.num_buffers,
+                device_iterator=self.device_iterator,
+            )
+
         # Initialize Optimizers
         self.optimizers = self.create_optimizers(
             learning_rate=self.args.learning_rate,
@@ -110,7 +137,7 @@ class DMCTrainerPettingzoo(object):
         self.stata_info = {k: 0 for k in self.stata_info_keys}
         self.global_player_step = {
             player_id: 0
-            for player_id in self.player_ids
+            for player_id in range(self.num_players)
         }
 
     def init_actor_models(self) -> None:
@@ -193,8 +220,6 @@ class DMCTrainerPettingzoo(object):
         self,
         rollout_length: int,
         num_buffers: int,
-        state_shape: Tuple[int],
-        action_shape: Tuple[int],
         device_iterator: Iterator[int],
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each player and device.
@@ -202,8 +227,6 @@ class DMCTrainerPettingzoo(object):
         Args:
             rollout_length: The length of the rollout.
             num_buffers: The number of buffers.
-            state_shape: The shape of the state.
-            action_shape: The shape of the action.
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
@@ -213,7 +236,8 @@ class DMCTrainerPettingzoo(object):
         for device in device_iterator:
             buffers[device] = {}
             for player_id in range(self.num_players):
-
+                state_shape = self.state_shapes[player_id]
+                action_shape = self.action_shapes[player_id]
                 specs = {
                     'done':
                     dict(size=(rollout_length, ), dtype=torch.bool),
@@ -222,13 +246,15 @@ class DMCTrainerPettingzoo(object):
                     'target':
                     dict(size=(rollout_length, ), dtype=torch.float32),
                     'state':
-                    dict(size=(rollout_length, ) +
-                         tuple(state_shape[player_id]),
-                         dtype=torch.int8),
+                    dict(
+                        size=(rollout_length, ) + tuple(state_shape),
+                        dtype=torch.int8,
+                    ),
                     'action':
-                    dict(size=(rollout_length, ) +
-                         tuple(action_shape[player_id]),
-                         dtype=torch.int8),
+                    dict(
+                        size=(rollout_length, ) + tuple(action_shape),
+                        dtype=torch.int8,
+                    ),
                 }
 
                 player_buffers = {key: [] for key in specs}
@@ -251,16 +277,16 @@ class DMCTrainerPettingzoo(object):
         return buffers
 
     def create_buffers_pettingzoo(
-        self, rollout_length: int, num_buffers: int,
-        device_iterator: Iterator[int]
+        self,
+        rollout_length: int,
+        num_buffers: int,
+        device_iterator: Iterator[int],
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each player and device.
 
         Args:
             rollout_length: The length of the rollout.
             num_buffers: The number of buffers.
-            state_shape: The shape of the state.
-            action_shape: The shape of the action.
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
@@ -269,11 +295,9 @@ class DMCTrainerPettingzoo(object):
         buffers = {}
         for device in device_iterator:
             buffers[device] = {}
-            for agent_name in self.env.agents:
-                state_shape = self.env.observation_space(
-                    agent_name)['observation'].shape
-                action_shape = self.env.action_space(agent_name).n
-
+            for player_id in range(self.env.num_agents):
+                state_shape = self.state_shapes[player_id]
+                action_shape = self.action_shapes[player_id]
                 specs = {
                     'done':
                     dict(size=(rollout_length, ), dtype=torch.bool),
@@ -304,7 +328,7 @@ class DMCTrainerPettingzoo(object):
 
                         player_buffers[key].append(buffer_tensor)
 
-                buffers[device][agent_name] = player_buffers
+                buffers[device][player_id] = player_buffers
 
         return buffers
 
@@ -421,8 +445,8 @@ class DMCTrainerPettingzoo(object):
                             break
                         for t in range(rollout_length):
                             buffers[p]['done'][index][t, ...] = done_buf[p][t]
-                            buffers[p]['episode_return'][index][
-                                t, ...] = episode_return_buf[p][t]
+                            buffers[p]['episode_return'][index][t, ...] = (
+                                episode_return_buf[p][t])
                             buffers[p]['target'][index][t,
                                                         ...] = target_buf[p][t]
                             buffers[p]['state'][index][t,
@@ -507,7 +531,8 @@ class DMCTrainerPettingzoo(object):
                                 'observation']
                             action = self._get_action_feature(
                                 trajectories[agent_name][i + 1],
-                                model.agents[agent_name].action_shape)
+                                model.agents[agent_name].action_shape,
+                            )
                             episode_return = trajectories[agent_name][i][1]
                             done = trajectories[agent_name][i][2]
 
@@ -517,34 +542,37 @@ class DMCTrainerPettingzoo(object):
                             episode_return_buf[agent_id].append(episode_return)
                             done_buf[agent_id].append(done)
 
-                while size[agent_id] > rollout_length:
-                    index = free_queue[agent_id].get()
-                    if index is None:
-                        break
+                    while size[agent_id] > rollout_length:
+                        index = free_queue[agent_id].get()
+                        if index is None:
+                            break
 
-                    for t in range(rollout_length):
-                        temp_done = done_buf[agent_id][t]
-                        buffers[agent_id]['done'][index][t, ...] = temp_done
-                        buffers[agent_id]['episode_return'][index][
-                            t, ...] = episode_return_buf[agent_id][t]
-                        buffers[agent_id]['target'][index][
-                            t, ...] = target_buf[agent_id][t]
-                        buffers[agent_id]['state'][index][
-                            t, ...] = state_buf[agent_id][t]
-                        buffers[agent_id]['action'][index][
-                            t, ...] = action_buf[agent_id][t]
+                        for t in range(rollout_length):
+                            temp_done = done_buf[agent_id][t]
+                            buffers[agent_id]['done'][index][t,
+                                                             ...] = temp_done
+                            buffers[agent_id]['episode_return'][index][
+                                t, ...] = (episode_return_buf[agent_id][t])
+                            buffers[agent_id]['target'][index][
+                                t, ...] = target_buf[agent_id][t]
+                            buffers[agent_id]['state'][index][
+                                t, ...] = state_buf[agent_id][t]
+                            buffers[agent_id]['action'][index][
+                                t, ...] = action_buf[agent_id][t]
 
-                    full_queue[agent_id].put(index)
+                        full_queue[agent_id].put(index)
 
-                    done_buf[agent_id] = done_buf[agent_id][rollout_length:]
-                    episode_return_buf[agent_id] = episode_return_buf[
-                        agent_id][rollout_length:]
-                    target_buf[agent_id] = target_buf[agent_id][
-                        rollout_length:]
-                    state_buf[agent_id] = state_buf[agent_id][rollout_length:]
-                    action_buf[agent_id] = action_buf[agent_id][
-                        rollout_length:]
-                    size[agent_id] -= rollout_length
+                        done_buf[agent_id] = done_buf[agent_id][
+                            rollout_length:]
+                        episode_return_buf[agent_id] = episode_return_buf[
+                            agent_id][rollout_length:]
+                        target_buf[agent_id] = target_buf[agent_id][
+                            rollout_length:]
+                        state_buf[agent_id] = state_buf[agent_id][
+                            rollout_length:]
+                        action_buf[agent_id] = action_buf[agent_id][
+                            rollout_length:]
+                        size[agent_id] -= rollout_length
 
         except KeyboardInterrupt:
             logger.info('Actor %i stopped manually.', worker_id)

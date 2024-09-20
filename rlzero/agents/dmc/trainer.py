@@ -1,4 +1,3 @@
-import multiprocessing as mp
 import os
 import pprint
 import threading
@@ -12,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import multiprocessing as mp
 from torch.optim import Optimizer
 
 from rlzero.agents.dmc.env_utils import EnvWrapper
@@ -24,7 +24,7 @@ from rlzero.utils.logger_utils import get_logger
 logger = get_logger('rlzero')
 
 
-class DistributedDouZero(object):
+class DMCTrainer(object):
     """A distributed multi-agent reinforcement learning system for training
     DouDizhu game AI agents.
 

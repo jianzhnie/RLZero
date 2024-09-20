@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import torch
-from pettingzoo import AECEnv
 from torch import nn
 
 from rlzero.utils.pettingzoo_utils import wrap_state
@@ -255,24 +254,24 @@ class DMCModel:
         device: Union[str, int] = '0',
     ) -> None:
         # Initialize agents for each player, each with their respective state and action shapes
-        self.agents: List[DMCAgent] = [
-            DMCAgent(
+        self.agents: OrderedDict[str, DMCAgent] = OrderedDict()
+        for player_id in range(len(state_shapes)):
+            self.agents[player_id] = DMCAgent(
                 state_shapes[player_id],
                 action_shapes[player_id],
                 mlp_layers,
                 exp_epsilon,
                 device,
-            ) for player_id in range(len(state_shapes))
-        ]
+            )
 
     def share_memory(self) -> None:
         """Share memory for all agents to enable multiprocessing."""
-        for agent in self.agents:
+        for agent in self.agents.values():
             agent.share_memory()
 
     def eval(self) -> None:
         """Set all agents to evaluation mode."""
-        for agent in self.agents:
+        for agent in self.agents.values():
             agent.eval()
 
     def parameters(self, index: int):
@@ -284,7 +283,7 @@ class DMCModel:
         Returns:
             Iterator over agent parameters.
         """
-        return self.agents[index].parameters()
+        return list(self.agents.values())[index].parameters()
 
     def get_agent(self, index: int) -> DMCAgent:
         """Retrieve a specific agent by index.
@@ -295,7 +294,7 @@ class DMCModel:
         Returns:
             DMCAgent: The agent corresponding to the given index.
         """
-        return self.agents[index]
+        return list(self.agents.values())[index]
 
     def get_agents(self) -> List[DMCAgent]:
         """Retrieve the list of all agents.
@@ -303,7 +302,7 @@ class DMCModel:
         Returns:
             List[DMCAgent]: The list of all agents.
         """
-        return self.agents
+        return list(self.agents.values())
 
 
 class DMCAgentPettingZoo(DMCAgent):
@@ -351,20 +350,33 @@ class DMCAgentPettingZoo(DMCAgent):
         super().feed(wrapped_ts)
 
 
-class DMCModelPettingZoo:
+class DMCModelPettingZoo(DMCModel):
     """A model for handling multiple agents in a PettingZoo environment.
 
     This class maintains a dictionary of DMCAgentPettingZoo instances, one for
     each agent in the environment.
+
+    Args:
+        state_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+                                        observation (state) shape for each agent.
+        action_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+                                         action space shape for each agent.
+        mlp_layers (List[int], optional): The structure of the multi-layer perceptron for each agent.
+                                          Defaults to [512, 512, 512, 512, 512].
+        exp_epsilon (float, optional): Exploration rate for epsilon-greedy action selection.
+                                       Defaults to 0.01.
+        device (int or str, optional): The device to run the model on, either a GPU index (int) or
+                                       "cpu". Defaults to 0 (i.e., 'cuda:0').
     """
 
     def __init__(
         self,
-        env: AECEnv,
+        state_shapes: List[Tuple[int]],
+        action_shapes: List[Tuple[int]],
         mlp_layers: List[int] = [512, 512, 512, 512, 512],
         exp_epsilon: float = 0.01,
         device: str = '0',
-    ):
+    ) -> None:
         """Initializes the DMCModelPettingZoo with multiple agents based on the
         environment.
 
@@ -374,18 +386,19 @@ class DMCModelPettingZoo:
             exp_epsilon: The exploration epsilon value for the agents.
             device: The device to be used by the agents (e.g., "0" for GPU, or "cpu").
         """
+        super().__init__(state_shapes, action_shapes, mlp_layers, exp_epsilon,
+                         device)
+        # Initialize agents for each player, each with their respective state and action shapes
         self.agents: OrderedDict[str, DMCAgentPettingZoo] = OrderedDict()
-
-        # Create an agent for each agent in the environment
-        for agent_name in env.agents:
+        for player_id in range(len(state_shapes)):
             agent = DMCAgentPettingZoo(
-                env.observation_space(agent_name)['observation'].shape,
-                (env.action_space(agent_name).n, ),
+                state_shapes[player_id],
+                action_shapes[player_id],
                 mlp_layers,
                 exp_epsilon,
                 device,
             )
-            self.agents[agent_name] = agent
+            self.agents[player_id] = agent
 
     def share_memory(self) -> None:
         """Share memory between agents (for multiprocessing)."""
