@@ -1,3 +1,3 @@
-from .dmc import DMCAgent
+from .dmc import DistributedDouZero
 
-__all__ = ['DMCAgent']
+__all__ = ['DistributedDouZero']

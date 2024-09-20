@@ -24,7 +24,7 @@ from rlzero.utils.logger_utils import get_logger
 logger = get_logger(__name__)
 
 
-class DMCAgent:
+class DistributedDouZero(object):
     """A distributed multi-agent reinforcement learning system for training
     DouDizhu game AI agents.
 
@@ -65,11 +65,7 @@ class DMCAgent:
         self.learner_model = DouDiZhuModel(device=self.args.training_device)
 
         # Initialize buffers
-        self.buffers = self.create_buffers(
-            num_buffers=self.args.num_buffers,
-            rollout_length=self.args.rollout_length,
-            device_iterator=self.device_iterator,
-        )
+        self.buffers = self.create_buffers(self.device_iterator)
         # Initialize Optimizers
         self.optimizers = self.create_optimizers(
             learning_rate=self.args.learning_rate,
@@ -77,6 +73,13 @@ class DMCAgent:
             epsilon=self.args.epsilon,
             alpha=self.args.alpha,
         )
+
+        self.global_step = 0
+        self.stata_info = {k: 0 for k in self.stata_info_keys()}
+        self.global_player_step = {
+            player_id: 0
+            for player_id in self.player_ids
+        }
 
     def init_actor_models(self) -> None:
         """Initialize actor models."""
@@ -195,23 +198,18 @@ class DMCAgent:
         return batch
 
     def create_buffers(
-        self,
-        num_buffers: int,
-        rollout_length: int,
-        device_iterator: Iterator[int],
+        self, device_iterator: Iterator[int]
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each player and device.
 
         Args:
-            num_buffers: Number of buffers to create.
-            rollout_length: Length of the rollout.
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
             Dictionary of buffers for each device and player.
         """
         buffers = {}
-
+        rollout_length = self.args.rollout_length
         for device in device_iterator:
             buffers[device] = {}
 
@@ -238,7 +236,7 @@ class DMCAgent:
                     for key in specs
                 }
 
-                for _ in range(num_buffers):
+                for _ in range(self.args.num_buffers):
                     for key, spec in specs.items():
                         if device != 'cpu':
                             buffer_tensor = (torch.empty(**spec).to(
@@ -501,15 +499,9 @@ class DMCAgent:
         learning. It also handles logging and checkpointing.
         """
 
-        self.global_step = 0
-        self.stata_info = {k: 0 for k in self.stata_info_keys()}
-        self.global_player_step = {
-            player_id: 0
-            for player_id in self.player_ids
-        }
-
         # Initialize the actor processes
         ctx = mp.get_context('spawn')
+        # 启动 actor 进程
         actor_processes = []
         for device in self.device_iterator:
             for worker_id in range(self.args.num_actors):
@@ -541,6 +533,7 @@ class DMCAgent:
             'landlord_down': threading.Lock(),
         }
 
+        # 启动学习线程
         for device in self.device_iterator:
             locks[device] = {pos: threading.Lock() for pos in self.player_ids}
             for i in range(self.args.num_threads):
@@ -564,6 +557,7 @@ class DMCAgent:
         last_checkpoint_time = timer() - self.args.save_interval * 60
 
         try:
+            # 主训练循环
             while self.global_step < self.args.total_steps:
                 current_step, current_player_step = (
                     self.global_step,
@@ -604,8 +598,12 @@ class DMCAgent:
         except KeyboardInterrupt:
             pass
         finally:
+            # 结束学习线程
             for thread in threads:
                 thread.join()
+            # 结束 actor 进程
+            for actor_process in actor_processes:
+                actor_process.join()
             logger.info('Training finished after %d steps.', self.global_step)
             self.save_checkpoint(self.checkpoint_path)
 
