@@ -94,11 +94,12 @@ class LandlordLstmModel(BaseModel):
     def __init__(
         self,
         input_dim: int = 162,
+        hidden_dim: int = 128,
         special_dim: int = 373,
         output_dim: int = 512,
     ) -> None:
         """Initializes the LandlordLstmModel with LSTM and dense layers."""
-        super().__init__(input_dim, special_dim, output_dim)
+        super().__init__(input_dim, hidden_dim, special_dim, output_dim)
 
 
 class FarmerLstmModel(BaseModel):
@@ -108,11 +109,12 @@ class FarmerLstmModel(BaseModel):
     def __init__(
         self,
         input_dim: int = 162,
+        hidden_dim: int = 128,
         special_dim: int = 484,
         output_dim: int = 512,
     ) -> None:
         """Initializes the FarmerLstmModel with LSTM and dense layers."""
-        super().__init__(input_dim, special_dim, output_dim)
+        super().__init__(input_dim, hidden_dim, special_dim, output_dim)
 
 
 # Dictionary to map different model roles to their respective classes
@@ -140,13 +142,16 @@ class DouDiZhuModel(nn.Module):
 
         # Initialize models for different roles and move to the specified device
         self.models['landlord'] = LandlordLstmModel(input_dim=162,
+                                                    hidden_dim=128,
                                                     special_dim=373,
                                                     output_dim=512).to(device)
         self.models['landlord_up'] = FarmerLstmModel(input_dim=162,
+                                                     hidden_dim=128,
                                                      special_dim=484,
                                                      output_dim=512).to(device)
         self.models['landlord_down'] = FarmerLstmModel(
-            input_dim=162, special_dim=484, output_dim=512).to(device)
+            input_dim=162, hidden_dim=128, special_dim=484,
+            output_dim=512).to(device)
 
     def forward(
         self,
@@ -169,7 +174,7 @@ class DouDiZhuModel(nn.Module):
         Returns:
             Dict[str, Union[torch.Tensor, int]]: Output from the respective model's forward method.
         """
-        model = self.models[player_id]
+        model: BaseModel = self.models[player_id]
         return model.forward(z, x, training, exp_epsilon)
 
     def share_memory(self) -> None:

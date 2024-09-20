@@ -21,7 +21,7 @@ from rlzero.envs.doudizhu.env import DouDiZhuEnv
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger('rlzero')
 
 
 class DistributedDouZero(object):
@@ -74,8 +74,11 @@ class DistributedDouZero(object):
             alpha=self.args.alpha,
         )
 
+        # Initialize queues
+        self.init_queues()
+        # Initialize global step and stat info
         self.global_step = 0
-        self.stata_info = {k: 0 for k in self.stata_info_keys()}
+        self.stata_info = {k: 0 for k in self.stata_info_keys}
         self.global_player_step = {
             player_id: 0
             for player_id in self.player_ids
@@ -146,8 +149,7 @@ class DistributedDouZero(object):
         optimizers = {}
 
         for player_id in self.player_ids:
-            model_parameters = getattr(self.learner_model,
-                                       player_id).parameters()
+            model_parameters = self.learner_model.parameters(player_id)
             optimizer = torch.optim.RMSprop(
                 model_parameters,
                 lr=learning_rate,
@@ -581,19 +583,20 @@ class DistributedDouZero(object):
                      current_player_step[player_id]) / (timer() - start_time)
                     for player_id in self.player_ids
                 }
-                logger.info(
-                    'After %i (L:%i U:%i D:%i) steps: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
-                    self.global_step,
-                    self.global_player_step['landlord'],
-                    self.global_player_step['landlord_up'],
-                    self.global_player_step['landlord_down'],
-                    fps,
-                    fps_avg,
-                    player_fps['landlord'],
-                    player_fps['landlord_up'],
-                    player_fps['landlord_down'],
-                    pprint.pformat(self.stata_info),
-                )
+                if self.global_step % 1000 == 0:
+                    logger.info(
+                        'After %i (L:%i U:%i D:%i) steps: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
+                        self.global_step,
+                        self.global_player_step['landlord'],
+                        self.global_player_step['landlord_up'],
+                        self.global_player_step['landlord_down'],
+                        fps,
+                        fps_avg,
+                        player_fps['landlord'],
+                        player_fps['landlord_up'],
+                        player_fps['landlord_down'],
+                        pprint.pformat(self.stata_info),
+                    )
 
         except KeyboardInterrupt:
             pass
@@ -613,6 +616,7 @@ class DistributedDouZero(object):
         Args:
             checkpoint_path: Path to save the checkpoint.
         """
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         if self.args.disable_checkpoint:
             return
         logger.info('Saving checkpoint to %s', checkpoint_path)
