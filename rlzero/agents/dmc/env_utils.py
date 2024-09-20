@@ -35,7 +35,7 @@ def format_observation(
     Returns:
         Tuple[str, Dict[str, torch.Tensor], torch.Tensor, torch.Tensor]: Processed observation with tensors moved to the specified device.
     """
-    player_id = observation['player_id']
+    player_id = observation['position']
 
     # Ensure the device is correctly formatted
     if device != 'cpu':

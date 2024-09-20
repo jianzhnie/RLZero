@@ -21,7 +21,7 @@ class RLArguments:
 
     # Training settings
     actor_device_cpu: bool = field(
-        default=False, metadata={'help': 'Use CPU as actor device'})
+        default=True, metadata={'help': 'Use CPU as actor device'})
     gpu_devices: str = field(
         default='0', metadata={'help': 'Which GPUs to be used for training'})
     num_actor_devices: int = field(

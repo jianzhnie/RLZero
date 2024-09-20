@@ -1,3 +1,3 @@
-from .env import DouDizhuEnv
+from .env import DouDiZhuEnv
 
-__all__ = ['DouDizhuEnv']
+__all__ = ['DouDiZhuEnv']
