@@ -1,4 +1,3 @@
-import multiprocessing as mp
 import os
 import pprint
 import threading
@@ -6,25 +5,26 @@ import timeit
 import traceback
 from collections import deque
 from queue import Queue
-from typing import Dict, Iterator, List, Union
+from typing import Dict, Iterator, List, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pettingzoo import AECEnv
+from rlcard.utils import run_game_pettingzoo
+from torch import multiprocessing as mp
 from torch.optim import Optimizer
 
-from rlzero.agents.dmc.env_utils import EnvWrapper
-from rlzero.agents.dmc.utils import cards2tensor
 from rlzero.agents.rl_args import RLArguments
-from rlzero.envs.doudizhu.env import DouDiZhuEnv
-from rlzero.models.doudizhu import DouDiZhuModel
+from rlzero.models.dcm_pettingzoo import DMCModelPettingZoo
+from rlzero.models.dmc_model import DMCModel
 from rlzero.utils.logger_utils import get_logger
 
 logger = get_logger('rlzero')
 
 
-class DistributedDouZero(object):
+class DMCTrainerPettingzoo(object):
     """A distributed multi-agent reinforcement learning system for training
     DouDizhu game AI agents.
 
@@ -35,39 +35,54 @@ class DistributedDouZero(object):
     - Logging and outputting training statistics.
     """
 
-    def __init__(self, args: RLArguments = RLArguments) -> None:
+    def __init__(
+        self,
+        env: AECEnv,
+        is_pettingzoo_env: bool = False,
+        args: RLArguments = RLArguments,
+    ) -> None:
         """Initialize the DistributedDouZero system.
 
         Args:
             args: Configuration arguments for the training process.
         """
-        self.player_ids: List[str] = [
-            'landlord', 'landlord_up', 'landlord_down'
-        ]
+        self.env = env
+        self.is_pettingzoo_env = is_pettingzoo_env
+        if not self.is_pettingzoo_env:
+            self.num_players = env.num_players
+            self.action_shape = env.action_shape
+            if self.action_shape[0] is None:  # One-hot encoding
+                self.action_shape = [[self.env.num_actions]
+                                     for _ in range(self.num_players)]
+
+            def model_func(device) -> DMCModel:
+                return DMCModel(
+                    self.env.state_shape,
+                    self.action_shape,
+                    exp_epsilon=self.args.epsilon_greedy,
+                    device=str(device),
+                )
+        else:
+            self.num_players = self.env.num_agents
+
+            def model_func(device) -> DMCModelPettingZoo:
+                return DMCModelPettingZoo(self.env,
+                                          exp_epsilon=self.args.epsilon_greedy,
+                                          device=device)
+
+        self.model_func = model_func
         self.mean_episode_return_buf = {
             p: deque(maxlen=100)
-            for p in self.player_ids
+            for p in range(self.num_players)
         }
+
         self.args: RLArguments = args
-        self.checkpoint_path = os.path.expandvars(
-            os.path.expanduser(
-                f'{self.args.savedir}/{self.args.project}/model.tar'))
-        self.stata_info_keys = [
-            'loss_landlord',
-            'loss_landlord_up',
-            'loss_landlord_down',
-            'mean_episode_return_landlord',
-            'mean_episode_return_landlord_up',
-            'mean_episode_return_landlord_down',
-        ]
-
         self.check_and_init_device()
-
         # Initialize actor models
         self.init_actor_models()
 
         # Initialize learner model
-        self.learner_model = DouDiZhuModel(device=self.args.training_device)
+        self.learner_model = self.model_func(self.training_device)
 
         # Initialize buffers
         self.buffers = self.create_buffers(self.device_iterator)
@@ -81,6 +96,16 @@ class DistributedDouZero(object):
 
         # Initialize queues
         self.init_queues()
+
+        self.checkpoint_path = os.path.expandvars(
+            os.path.expanduser(
+                f'{self.args.savedir}/{self.args.project}/model.tar'))
+
+        self.stata_info_keys = []
+        for p in range(self.num_players):
+            self.stata_info_keys.append('mean_episode_return_' + str(p))
+            self.stata_info_keys.append('loss_' + str(p))
+
         # Initialize global step and stat info
         self.global_step = 0
         self.stata_info = {k: 0 for k in self.stata_info_keys}
@@ -93,7 +118,7 @@ class DistributedDouZero(object):
         """Initialize actor models for each device."""
         self.actor_models = {}
         for device in self.device_iterator:
-            model = DouDiZhuModel(device=device)
+            model = self.model_func(device=device)
             model.share_memory()
             model.eval()
             self.actor_models[device] = model
@@ -124,14 +149,12 @@ class DistributedDouZero(object):
 
         for device in self.device_iterator:
             self.free_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
+                key: ctx.SimpleQueue()
+                for key in range(self.num_players)
             }
             self.full_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
+                key: ctx.SimpleQueue()
+                for key in range(self.num_players)
             }
 
     def create_optimizers(
@@ -154,7 +177,7 @@ class DistributedDouZero(object):
         """
         optimizers = {}
 
-        for player_id in self.player_ids:
+        for player_id in range(self.num_players):
             model_parameters = self.learner_model.parameters(player_id)
             optimizer = torch.optim.RMSprop(
                 model_parameters,
@@ -206,23 +229,25 @@ class DistributedDouZero(object):
         return batch
 
     def create_buffers(
-        self, device_iterator: Iterator[int]
+        self, rollout_length: int, num_buffers: int, state_shape: Tuple[int],
+        action_shape: Tuple[int], device_iterator: Iterator[int]
     ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
         """Create buffers for each player and device.
 
         Args:
+            rollout_length: The length of the rollout.
+            num_buffers: The number of buffers.
+            state_shape: The shape of the state.
+            action_shape: The shape of the action.
             device_iterator: Iterable of device indices (GPU or CPU).
 
         Returns:
             Dictionary of buffers for each device and player.
         """
         buffers = {}
-        rollout_length = self.args.rollout_length
         for device in device_iterator:
             buffers[device] = {}
-
-            for player_id in self.player_ids:
-                feature_dim = 319 if player_id == 'landlord' else 430
+            for player_id in range(self.num_players):
 
                 specs = {
                     'done':
@@ -231,12 +256,14 @@ class DistributedDouZero(object):
                     dict(size=(rollout_length, ), dtype=torch.float32),
                     'target':
                     dict(size=(rollout_length, ), dtype=torch.float32),
-                    'obs_x_no_action':
-                    dict(size=(rollout_length, feature_dim), dtype=torch.int8),
-                    'obs_action':
-                    dict(size=(rollout_length, 54), dtype=torch.int8),
-                    'obs_z':
-                    dict(size=(rollout_length, 5, 162), dtype=torch.int8),
+                    'state':
+                    dict(size=(rollout_length, ) +
+                         tuple(state_shape[player_id]),
+                         dtype=torch.int8),
+                    'action':
+                    dict(size=(rollout_length, ) +
+                         tuple(action_shape[player_id]),
+                         dtype=torch.int8),
                 }
 
                 player_buffers: Dict[str, List[torch.Tensor]] = {
@@ -244,7 +271,8 @@ class DistributedDouZero(object):
                     for key in specs
                 }
 
-                for _ in range(self.args.num_buffers):
+                # Create buffers for each player
+                for _ in range(num_buffers):
                     for key, spec in specs.items():
                         if device != 'cpu':
                             buffer_tensor = (torch.empty(**spec).to(
@@ -260,12 +288,73 @@ class DistributedDouZero(object):
 
         return buffers
 
+    def create_buffers_pettingzoo(
+        self, rollout_length: int, num_buffers: int,
+        device_iterator: Iterator[int]
+    ) -> Dict[str, Dict[str, List[torch.Tensor]]]:
+        """Create buffers for each player and device.
+
+        Args:
+            rollout_length: The length of the rollout.
+            num_buffers: The number of buffers.
+            state_shape: The shape of the state.
+            action_shape: The shape of the action.
+            device_iterator: Iterable of device indices (GPU or CPU).
+
+        Returns:
+            Dictionary of buffers for each device and player.
+        """
+        buffers = {}
+        for device in device_iterator:
+            buffers[device] = {}
+            for agent_name in self.env.agents:
+                state_shape = self.env.observation_space(
+                    agent_name)['observation'].shape
+                action_shape = self.env.action_space(agent_name).n
+
+                specs = {
+                    'done':
+                    dict(size=(rollout_length, ), dtype=torch.bool),
+                    'episode_return':
+                    dict(size=(rollout_length, ), dtype=torch.float32),
+                    'target':
+                    dict(size=(rollout_length, ), dtype=torch.float32),
+                    'state':
+                    dict(size=(rollout_length, ) + tuple(state_shape),
+                         dtype=torch.int8),
+                    'action':
+                    dict(size=(rollout_length, ) + tuple(action_shape),
+                         dtype=torch.int8),
+                }
+
+                player_buffers: Dict[str, List[torch.Tensor]] = {
+                    key: []
+                    for key in specs
+                }
+
+                # Create buffers for each player
+                for _ in range(num_buffers):
+                    for key, spec in specs.items():
+                        if device != 'cpu':
+                            buffer_tensor = (torch.empty(**spec).to(
+                                torch.device(
+                                    f'cuda:{device}')).share_memory_())
+                        else:
+                            buffer_tensor = (torch.empty(**spec).to(
+                                torch.device('cpu')).share_memory_())
+
+                        player_buffers[key].append(buffer_tensor)
+
+                buffers[device][agent_name] = player_buffers
+
+        return buffers
+
     def get_action(
         self,
         worker_id: int,
         free_queue: Dict[str, mp.Queue],
         full_queue: Dict[str, mp.Queue],
-        model: DouDiZhuModel,
+        model: DMCModel,
         buffers: Dict[str, Dict[str, List[torch.Tensor]]],
         device: Union[str, int],
     ) -> None:
@@ -283,106 +372,73 @@ class DistributedDouZero(object):
         rollout_length = self.args.rollout_length
         try:
             logger.info('Device %s Actor %i started.', str(device), worker_id)
-
-            env = DouDiZhuEnv(objective=self.args.objective)
-            env: EnvWrapper = EnvWrapper(env, device)
+            self.env.seed(worker_id)
+            self.env.set_agents(model.get_agents())
 
             done_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in self.player_ids
+                for p in range(self.env.num_players)
             }
             episode_return_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in self.player_ids
+                for p in range(self.env.num_players)
             }
             target_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in self.player_ids
+                for p in range(self.env.num_players)
             }
-            obs_x_no_action_buf = {
+            state_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in self.player_ids
+                for p in range(self.env.num_players)
             }
-            obs_action_buf = {
+            action_buf = {
                 p: deque(maxlen=rollout_length)
-                for p in self.player_ids
+                for p in range(self.env.num_players)
             }
-            obs_z_buf = {
-                p: deque(maxlen=rollout_length)
-                for p in self.player_ids
-            }
-            size = {p: 0 for p in self.player_ids}
-
-            player_id, obs, env_output = env.initial()
+            size = {p: 0 for p in range(self.env.num_players)}
 
             while True:
-                while True:
-                    obs_x_no_action_buf[player_id].append(
-                        env_output['obs_x_no_action'])
-                    obs_z_buf[player_id].append(env_output['obs_z'])
+                trajectories, payoffs = self.env.run(is_training=True)
+                for p in range(self.env.num_players):
+                    size[p] += len(trajectories[p][:-1]) // 2
+                    diff = size[p] - len(target_buf[p])
+                    if diff > 0:
+                        done_buf[p].extend([False for _ in range(diff - 1)])
+                        done_buf[p].append(True)
+                        episode_return_buf[p].extend(
+                            [0.0 for _ in range(diff - 1)])
+                        episode_return_buf[p].append(float(payoffs[p]))
+                        target_buf[p].extend(
+                            [float(payoffs[p]) for _ in range(diff)])
+                        # State and action
+                        for i in range(0, len(trajectories[p]) - 2, 2):
+                            state = trajectories[p][i]['obs']
+                            action = self.env.get_action_feature(
+                                trajectories[p][i + 1])
+                            state_buf[p].append(torch.from_numpy(state))
+                            action_buf[p].append(torch.from_numpy(action))
 
-                    with torch.no_grad():
-                        agent_output = model.forward(
-                            player_id,
-                            obs['z_batch'],
-                            obs['x_batch'],
-                            training=False,
-                            exp_epsilon=self.args.epsilon_greedy,
-                        )
-
-                    action_idx = int(
-                        agent_output['action'].cpu().detach().numpy())
-                    action = obs['legal_actions'][action_idx]
-                    obs_action_buf[player_id].append(cards2tensor(action))
-
-                    size[player_id] += 1
-
-                    player_id, obs, env_output = env.step(action)
-
-                    if env_output['done']:
-                        for p in self.player_ids:
-                            diff = size[p] - len(target_buf[p])
-                            if diff > 0:
-                                done_buf[p].extend([False] * (diff - 1))
-                                done_buf[p].append(True)
-
-                                episode_return = (
-                                    env_output['episode_return']
-                                    if p == 'landlord' else
-                                    -env_output['episode_return'])
-                                episode_return_buf[p].extend([0.0] *
-                                                             (diff - 1))
-                                episode_return_buf[p].append(episode_return)
-                                target_buf[p].extend([episode_return] * diff)
-                        break
-
-                for p in self.player_ids:
-                    while size[p] >= rollout_length:
+                    while size[p] > rollout_length:
                         index = free_queue[p].get()
                         if index is None:
                             break
-
                         for t in range(rollout_length):
                             buffers[p]['done'][index][t, ...] = done_buf[p][t]
-                            buffers[p]['episode_return'][index][t, ...] = (
-                                episode_return_buf[p][t])
+                            buffers[p]['episode_return'][index][
+                                t, ...] = episode_return_buf[p][t]
                             buffers[p]['target'][index][t,
                                                         ...] = target_buf[p][t]
-                            buffers[p]['obs_x_no_action'][index][t, ...] = (
-                                obs_x_no_action_buf[p][t])
-                            buffers[p]['obs_action'][index][
-                                t, ...] = obs_action_buf[p][t]
-                            buffers[p]['obs_z'][index][t,
-                                                       ...] = obs_z_buf[p][t]
-
+                            buffers[p]['state'][index][t,
+                                                       ...] = state_buf[p][t]
+                            buffers[p]['action'][index][t,
+                                                        ...] = action_buf[p][t]
                         full_queue[p].put(index)
-
-                        done_buf[p].popleft()
-                        episode_return_buf[p].popleft()
-                        target_buf[p].popleft()
-                        obs_x_no_action_buf[p].popleft()
-                        obs_action_buf[p].popleft()
-                        obs_z_buf[p].popleft()
+                        done_buf[p] = done_buf[p][rollout_length:]
+                        episode_return_buf[p] = episode_return_buf[p][
+                            rollout_length:]
+                        target_buf[p] = target_buf[p][rollout_length:]
+                        state_buf[p] = state_buf[p][rollout_length:]
+                        action_buf[p] = action_buf[p][rollout_length:]
                         size[p] -= rollout_length
 
         except KeyboardInterrupt:
@@ -391,6 +447,119 @@ class DistributedDouZero(object):
             logger.error(f'Exception in worker process {worker_id}: {str(e)}')
             traceback.print_exc()
             raise e
+
+    def get_action_pettingzoo(
+        self,
+        worker_id: int,
+        free_queue: Dict[str, mp.Queue],
+        full_queue: Dict[str, mp.Queue],
+        model: DMCModelPettingZoo,
+        buffers: Dict[str, Dict[str, List[torch.Tensor]]],
+        device: Union[str, int],
+    ) -> None:
+        """Actor process that interacts with the environment and fills buffers
+        with data.
+
+        Args:
+            worker_id: Process index for the actor.
+            free_queue: Queue for getting free buffer indices.
+            full_queue: Queue for passing filled buffer indices to the main process.
+            model: The model used to get actions from the environment.
+            buffers: Buffers to store experiences.
+            device: Device name ('cpu' or 'cuda:x') where this actor will run.
+        """
+        rollout_length = self.args.rollout_length
+        try:
+            logger.info('Device %s Actor %i started.', str(device), worker_id)
+            done_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in range(self.env.num_agents)
+            }
+            episode_return_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in range(self.env.num_agents)
+            }
+            target_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in range(self.env.num_agents)
+            }
+            state_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in range(self.env.num_agents)
+            }
+            action_buf = {
+                p: deque(maxlen=rollout_length)
+                for p in range(self.env.num_agents)
+            }
+            size = {p: 0 for p in range(self.env.num_agents)}
+
+            while True:
+                trajectories = run_game_pettingzoo(self.env,
+                                                   model.agents,
+                                                   is_training=True)
+                for agent_id, agent_name in enumerate(
+                        self.env.possible_agents):
+                    traj_size = len(trajectories[agent_name]) // 2
+                    if traj_size > 0:
+                        size[agent_id] += traj_size
+                        target_return = trajectories[agent_name][-2][1]
+                        target_buf[agent_id].extend([target_return] *
+                                                    traj_size)
+                        for i in range(0, len(trajectories[agent_name]), 2):
+                            state = trajectories[agent_name][i][0][
+                                'observation']
+                            action = self._get_action_feature(
+                                trajectories[agent_name][i + 1],
+                                model.agents[agent_name].action_shape)
+                            episode_return = trajectories[agent_name][i][1]
+                            done = trajectories[agent_name][i][2]
+
+                            state_buf[agent_id].append(torch.from_numpy(state))
+                            action_buf[agent_id].append(
+                                torch.from_numpy(action))
+                            episode_return_buf[agent_id].append(episode_return)
+                            done_buf[agent_id].append(done)
+
+                while size[agent_id] > rollout_length:
+                    index = free_queue[agent_id].get()
+                    if index is None:
+                        break
+
+                    for t in range(rollout_length):
+                        temp_done = done_buf[agent_id][t]
+                        buffers[agent_id]['done'][index][t, ...] = temp_done
+                        buffers[agent_id]['episode_return'][index][
+                            t, ...] = episode_return_buf[agent_id][t]
+                        buffers[agent_id]['target'][index][
+                            t, ...] = target_buf[agent_id][t]
+                        buffers[agent_id]['state'][index][
+                            t, ...] = state_buf[agent_id][t]
+                        buffers[agent_id]['action'][index][
+                            t, ...] = action_buf[agent_id][t]
+
+                    full_queue[agent_id].put(index)
+
+                    done_buf[agent_id] = done_buf[agent_id][rollout_length:]
+                    episode_return_buf[agent_id] = episode_return_buf[
+                        agent_id][rollout_length:]
+                    target_buf[agent_id] = target_buf[agent_id][
+                        rollout_length:]
+                    state_buf[agent_id] = state_buf[agent_id][rollout_length:]
+                    action_buf[agent_id] = action_buf[agent_id][
+                        rollout_length:]
+                    size[agent_id] -= rollout_length
+
+        except KeyboardInterrupt:
+            logger.info('Actor %i stopped manually.', worker_id)
+        except Exception as e:
+            logger.error(f'Exception in worker process {worker_id}: {str(e)}')
+            traceback.print_exc()
+            raise e
+
+    def _get_action_feature(self, action: int, action_space: int):
+        out = np.zeros(action_space)
+        out[action] = 1
+        return out
 
     def learn(
         self,
@@ -540,22 +709,24 @@ class DistributedDouZero(object):
         # Initialize free_queue
         for device in self.device_iterator:
             for m in range(self.args.num_buffers):
-                for pos in self.player_ids:
-                    self.free_queue[device][pos].put(m)
+                for player_id in range(self.num_players):
+                    self.free_queue[device][player_id].put(m)
 
         # Initialize threads, locks, player_locks
-        threads, locks = [], {}
-        player_locks = {
-            'landlord': threading.Lock(),
-            'landlord_up': threading.Lock(),
-            'landlord_down': threading.Lock(),
+        threads = []
+        locks = {
+            device: {
+                player_id: threading.Lock()
+                for player_id in range(self.num_players)
+            }
+            for device in self.device_iterator
         }
+        player_locks = [threading.Lock() for _ in range(self.num_players)]
 
         # Start learning threads
         for device in self.device_iterator:
-            locks[device] = {pos: threading.Lock() for pos in self.player_ids}
             for i in range(self.args.num_threads):
-                for player_id in self.player_ids:
+                for player_id in range(self.num_players):
                     thread = threading.Thread(
                         target=self.batch_and_learn,
                         name=f'batch-and-learn-{i}',
@@ -564,7 +735,6 @@ class DistributedDouZero(object):
                             player_id,
                             locks[device][player_id],
                             player_locks[player_id],
-                            threading.Lock(),
                             device,
                         ),
                     )
@@ -573,10 +743,10 @@ class DistributedDouZero(object):
 
         fps_log = deque(maxlen=24)
         timer = timeit.default_timer
-        last_checkpoint_time = timer() - self.args.save_interval * 60
 
         try:
             # Main training loop
+            last_checkpoint_time = timer() - self.args.save_interval * 60
             while self.global_step < self.args.total_steps:
                 current_step, current_player_step = (
                     self.global_step,
@@ -589,31 +759,34 @@ class DistributedDouZero(object):
                     self.save_checkpoint(self.checkpoint_path)
                     last_checkpoint_time = timer()
 
-                fps = (self.global_step - current_step) / (timer() -
+                end_time = timer()
+                fps = (self.global_step - current_step) / (end_time -
                                                            start_time)
+
                 fps_log.append(fps)
                 fps_avg = np.mean(fps_log)
 
                 player_fps = {
                     player_id:
                     (self.global_player_step[player_id] -
-                     current_player_step[player_id]) / (timer() - start_time)
-                    for player_id in self.player_ids
+                     current_player_step[player_id]) / (end_time - start_time)
+                    for player_id in range(self.num_players)
                 }
                 if self.global_step % 1000 == 0:
                     logger.info(
-                        'After %i (L:%i U:%i D:%i) steps: @ %.1f fps (avg@ %.1f fps) (L:%.1f U:%.1f D:%.1f) Stats:\n%s',
+                        'After %i steps: @ %.1f fps (avg@ %.1f fps) Stats:\n%s',
                         self.global_step,
-                        self.global_player_step['landlord'],
-                        self.global_player_step['landlord_up'],
-                        self.global_player_step['landlord_down'],
                         fps,
                         fps_avg,
-                        player_fps['landlord'],
-                        player_fps['landlord_up'],
-                        player_fps['landlord_down'],
                         pprint.pformat(self.stata_info),
                     )
+                    for player_id in range(self.num_players):
+                        logger.info(
+                            'Player %i: @ %.1f fps (avg@ %.1f fps)',
+                            player_id,
+                            player_fps[player_id],
+                            fps_avg,
+                        )
 
         except KeyboardInterrupt:
             pass
@@ -638,12 +811,12 @@ class DistributedDouZero(object):
             {
                 'model_state_dict': {
                     player_id:
-                    self.learner_model.get_model(player_id).state_dict()
-                    for player_id in self.player_ids
+                    self.learner_model.get_agent(player_id).state_dict()
+                    for player_id in range(self.num_players)
                 },
                 'optimizer_state_dict': {
                     player_id: self.optimizers[player_id].state_dict()
-                    for player_id in self.player_ids
+                    for player_id in range(self.num_players)
                 },
                 'stata_info': self.stata_info,
                 'global_step': self.global_step,
@@ -651,15 +824,16 @@ class DistributedDouZero(object):
             },
             checkpoint_path,
         )
-        for player_id in self.player_ids:
+        for player_id in range(self.num_players):
             model_weights_dir = os.path.expandvars(
                 os.path.expanduser('%s/%s/%s' % (
                     self.args.savedir,
                     self.args.project,
-                    player_id + '_weights_' + str(self.global_step) + '.ckpt',
+                    str(player_id) + '_weights_' + str(self.global_step) +
+                    '.pth',
                 )))
             torch.save(
-                self.learner_model.get_model(player_id).state_dict(),
+                self.learner_model.get_agent(player_id).state_dict(),
                 model_weights_dir)
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
@@ -674,15 +848,15 @@ class DistributedDouZero(object):
                 map_location=(f'cuda:{self.args.training_device}' if
                               self.args.training_device != 'cpu' else 'cpu'),
             )
-            for player_id in self.player_ids:
-                self.learner_model.get_model(player_id).load_state_dict(
+            for player_id in range(self.num_players):
+                self.learner_model.get_agent(player_id).load_state_dict(
                     checkpoint_states['model_state_dict'][player_id])
                 self.optimizers[player_id].load_state_dict(
                     checkpoint_states['optimizer_state_dict'][player_id])
                 for device in self.device_iterator:
-                    self.actor_models[device].get_model(
+                    self.actor_models[device].get_agent(
                         player_id).load_state_dict(
-                            self.learner_model.get_model(
+                            self.learner_model.get_agent(
                                 player_id).state_dict())
             self.stata_info = checkpoint_states['stata_info']
             self.global_step = checkpoint_states['global_step']
