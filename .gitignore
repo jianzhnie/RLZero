@@ -124,6 +124,7 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+*.json
 
 # Pyre type checker
 .pyre/
@@ -131,3 +132,6 @@ work_dirs/
 tools/best_policy.model
 tools/current_policy.model
 img/
+work_dirs/
+douzero_checkpoints/
+douzero_checkpoints
