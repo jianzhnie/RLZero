@@ -15,9 +15,13 @@ A clean and easy implementation of MuZero, AlphaZero and Self-Play reinforcement
 
 ### Distributed RL Libraries
 
-- https://github.com/facebookresearch/torchbeast
 - https://github.com/ray-project/ray
+- https://github.com/DeNA/HandyRL.git
+- https://github.com/pocokhc/simple_distributed_rl.git
+- https://github.com/facebookresearch/torchbeast
+- https://github.com/facebookresearch/rlmeta
 - https://github.com/alex-petrenko/sample-factory
+- https://github.com/google-deepmind/scalable_agent
 
 ### Distributed RL Blogs
 
