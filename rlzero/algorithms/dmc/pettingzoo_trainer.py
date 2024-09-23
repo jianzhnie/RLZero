@@ -16,7 +16,7 @@ from rlcard.utils import run_game_pettingzoo
 from torch import multiprocessing as mp
 from torch.optim import Optimizer
 
-from rlzero.agents.rl_args import RLArguments
+from rlzero.algorithms.rl_args import RLArguments
 from rlzero.models import DMCAgent, DMCModel, DMCModelPettingZoo
 from rlzero.utils.logger_utils import get_logger
 
@@ -754,6 +754,7 @@ class DMCTrainerPettingzoo(object):
                             player_id,
                             locks[device][player_id],
                             player_locks[player_id],
+                            threading.Lock(),
                             device,
                         ),
                     )

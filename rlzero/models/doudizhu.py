@@ -211,7 +211,7 @@ class DouDiZhuModel(nn.Module):
             path,
         )
 
-    def load(self, path) -> None:
+    def load(self, path: str) -> None:
         checkpoint = torch.load(path)
         self.models['landlord'].load_state_dict(checkpoint['landlord'])
         self.models['landlord_up'].load_state_dict(checkpoint['landlord_up'])

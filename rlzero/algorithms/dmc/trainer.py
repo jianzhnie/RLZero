@@ -14,9 +14,9 @@ import torch.nn.functional as F
 from torch import multiprocessing as mp
 from torch.optim import Optimizer
 
-from rlzero.agents.dmc.env_utils import EnvWrapper
-from rlzero.agents.dmc.utils import cards2tensor
-from rlzero.agents.rl_args import RLArguments
+from rlzero.algorithms.dmc.env_utils import EnvWrapper
+from rlzero.algorithms.dmc.utils import cards2tensor
+from rlzero.algorithms.rl_args import RLArguments
 from rlzero.envs.doudizhu.env import DouDiZhuEnv
 from rlzero.models.doudizhu import DouDiZhuModel
 from rlzero.utils.logger_utils import get_logger
@@ -49,20 +49,10 @@ class DMCTrainer(object):
             for p in self.player_ids
         }
         self.args: RLArguments = args
-        self.checkpoint_path = os.path.expandvars(
-            os.path.expanduser(
-                f'{self.args.savedir}/{self.args.project}/model.tar'))
-        self.stata_info_keys = [
-            'loss_landlord',
-            'loss_landlord_up',
-            'loss_landlord_down',
-            'mean_episode_return_landlord',
-            'mean_episode_return_landlord_up',
-            'mean_episode_return_landlord_down',
-        ]
-
         self.check_and_init_device()
+        self.build_trainer()
 
+    def build_trainer(self) -> None:
         # Initialize actor models
         self.init_actor_models()
 
@@ -81,6 +71,15 @@ class DMCTrainer(object):
 
         # Initialize queues
         self.init_queues()
+
+        self.checkpoint_path = os.path.expandvars(
+            os.path.expanduser(
+                f'{self.args.savedir}/{self.args.project}/model.tar'))
+        self.stata_info_keys = []
+        for player_id in self.player_ids:
+            self.stata_info_keys.append('mean_episode_return_' +
+                                        str(player_id))
+            self.stata_info_keys.append('loss_' + str(player_id))
         # Initialize global step and stat info
         self.global_step = 0
         self.stata_info = {k: 0 for k in self.stata_info_keys}
@@ -121,17 +120,14 @@ class DMCTrainer(object):
         ctx = mp.get_context('spawn')
         self.free_queue = {}
         self.full_queue = {}
-
         for device in self.device_iterator:
             self.free_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
+                key: ctx.SimpleQueue()
+                for key in self.player_ids
             }
             self.full_queue[device] = {
-                'landlord': ctx.SimpleQueue(),
-                'landlord_up': ctx.SimpleQueue(),
-                'landlord_down': ctx.SimpleQueue(),
+                key: ctx.SimpleQueue()
+                for key in self.player_ids
             }
 
     def create_optimizers(
@@ -166,44 +162,6 @@ class DMCTrainer(object):
             optimizers[player_id] = optimizer
 
         return optimizers
-
-    def get_batch(
-        self,
-        free_queue: Queue,
-        full_queue: Queue,
-        buffers: Dict[str, torch.Tensor],
-        lock: threading.Lock,
-    ) -> Dict[str, torch.Tensor]:
-        """Samples a batch from the `buffers` using indices retrieved from
-        `full_queue`. After sampling, it frees the indices by sending them to
-        `free_queue`.
-
-        Args:
-            free_queue (Queue): A queue where free buffer indices are placed after being processed.
-            full_queue (Queue): A queue from which buffer indices are retrieved for batch sampling.
-            buffers (Dict[str, torch.Tensor]): A dictionary of tensors containing the data to be batched.
-            lock (Lock): A threading lock to ensure thread-safe access to shared resources.
-
-        Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the sampled batch, with the same keys as `buffers`.
-        """
-
-        # Thread-safe section using the provided lock
-        with lock:
-            # Retrieve a batch of indices from the full_queue
-            indices = [full_queue.get() for _ in range(self.args.batch_size)]
-
-        # Create a batch by stacking the selected elements from each buffer
-        batch = {
-            key: torch.stack([buffers[key][m] for m in indices], dim=1)
-            for key in buffers
-        }
-
-        # Release the indices back to the free_queue for future use
-        for m in indices:
-            free_queue.put(m)
-
-        return batch
 
     def create_buffers(
         self, device_iterator: Iterator[int]
@@ -259,6 +217,44 @@ class DMCTrainer(object):
                 buffers[device][player_id] = player_buffers
 
         return buffers
+
+    def get_batch(
+        self,
+        free_queue: Queue,
+        full_queue: Queue,
+        buffers: Dict[str, torch.Tensor],
+        lock: threading.Lock,
+    ) -> Dict[str, torch.Tensor]:
+        """Samples a batch from the `buffers` using indices retrieved from
+        `full_queue`. After sampling, it frees the indices by sending them to
+        `free_queue`.
+
+        Args:
+            free_queue (Queue): A queue where free buffer indices are placed after being processed.
+            full_queue (Queue): A queue from which buffer indices are retrieved for batch sampling.
+            buffers (Dict[str, torch.Tensor]): A dictionary of tensors containing the data to be batched.
+            lock (Lock): A threading lock to ensure thread-safe access to shared resources.
+
+        Returns:
+            Dict[str, torch.Tensor]: A dictionary containing the sampled batch, with the same keys as `buffers`.
+        """
+
+        # Thread-safe section using the provided lock
+        with lock:
+            # Retrieve a batch of indices from the full_queue
+            indices = [full_queue.get() for _ in range(self.args.batch_size)]
+
+        # Create a batch by stacking the selected elements from each buffer
+        batch = {
+            key: torch.stack([buffers[key][m] for m in indices], dim=1)
+            for key in buffers
+        }
+
+        # Release the indices back to the free_queue for future use
+        for m in indices:
+            free_queue.put(m)
+
+        return batch
 
     def get_action(
         self,
@@ -394,7 +390,7 @@ class DMCTrainer(object):
 
     def learn(
         self,
-        model: nn.Module,
+        model: DouDiZhuModel,
         optimizer: Optimizer,
         player_id: str,
         batch: Dict[str, torch.Tensor],
@@ -540,20 +536,25 @@ class DMCTrainer(object):
         # Initialize free_queue
         for device in self.device_iterator:
             for m in range(self.args.num_buffers):
-                for pos in self.player_ids:
-                    self.free_queue[device][pos].put(m)
+                for player_id in self.player_ids:
+                    self.free_queue[device][player_id].put(m)
 
         # Initialize threads, locks, player_locks
-        threads, locks = [], {}
+        threads, locks = []
+
         player_locks = {
-            'landlord': threading.Lock(),
-            'landlord_up': threading.Lock(),
-            'landlord_down': threading.Lock(),
+            player_id: threading.Lock()
+            for player_id in self.player_ids
+        }
+        locks = {
+            device:
+            {player_id: threading.Lock()
+             for player_id in self.player_ids}
+            for device in self.device_iterator
         }
 
         # Start learning threads
         for device in self.device_iterator:
-            locks[device] = {pos: threading.Lock() for pos in self.player_ids}
             for i in range(self.args.num_threads):
                 for player_id in self.player_ids:
                     thread = threading.Thread(
@@ -656,7 +657,7 @@ class DMCTrainer(object):
                 os.path.expanduser('%s/%s/%s' % (
                     self.args.savedir,
                     self.args.project,
-                    player_id + '_weights_' + str(self.global_step) + '.ckpt',
+                    player_id + '_weights_' + str(self.global_step) + '.pth',
                 )))
             torch.save(
                 self.learner_model.get_model(player_id).state_dict(),
