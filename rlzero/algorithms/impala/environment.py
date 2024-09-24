@@ -1,8 +1,8 @@
 """The environment class for MonoBeast."""
 
-import torch
-import numpy as np
 import gymnasium as gym
+import numpy as np
+import torch
 
 
 def _format_obs(obs: np.ndarray) -> torch.Tensor:
@@ -11,6 +11,7 @@ def _format_obs(obs: np.ndarray) -> torch.Tensor:
 
 
 class Environment:
+
     def __init__(self, gym_env: gym.Env) -> None:
         self.gym_env = gym_env
         self.episode_return = None
@@ -36,7 +37,8 @@ class Environment:
         )
 
     def step(self, action: torch.Tensor) -> dict[str, torch.Tensor]:
-        obs, reward, terminated, truncated, info = self.gym_env.step(action.item())
+        obs, reward, terminated, truncated, info = self.gym_env.step(
+            action.item())
         self.episode_step += 1
         self.episode_return += reward
         episode_step = self.episode_step

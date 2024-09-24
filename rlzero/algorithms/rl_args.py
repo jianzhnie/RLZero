@@ -18,8 +18,12 @@ class RLArguments:
             'choices': ['adp', 'wp', 'logadp'],
         },
     )
-
+    env_id: str = field(
+        default='CartPole-v1',
+        metadata={'help': 'Environment ID (default: CartPole-v1)'})
     # Training settings
+    use_cuda: bool = field(default=True,
+                           metadata={'help': 'Use CUDA (default: True)'})
     actor_device_cpu: bool = field(
         default=True, metadata={'help': 'Use CPU as actor device'})
     gpu_devices: str = field(
@@ -28,7 +32,7 @@ class RLArguments:
         default=1,
         metadata={'help': 'The number of devices used for simulation'})
     num_actors: int = field(
-        default=5,
+        default=1,
         metadata={'help': 'The number of actors for each simulation device'})
     training_device: str = field(
         default='0',

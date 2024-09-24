@@ -1,9 +1,11 @@
+import collections
 import copy
 import logging
 import timeit
 from typing import Dict, List
 
 import gymnasium as gym
+import numpy as np
 import torch
 from gymnasium.wrappers import RecordEpisodeStatistics
 from torch import multiprocessing as mp
@@ -40,6 +42,7 @@ class QNet(nn.Module):
         hidden_dim: int = 128,
     ) -> None:
         super(QNet, self).__init__()
+
         self.q_net = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
             nn.ReLU(inplace=True),
@@ -53,9 +56,13 @@ class QNet(nn.Module):
         """Forward method implementation."""
         return self.q_net(obs)
 
-    def get_action(self, obs: torch.Tensor) -> torch.Tensor:
+    def get_action(self, obs: np.array) -> torch.Tensor:
         """Get action from the actor network."""
-        obs = torch.tensor(obs, dtype=torch.float, device=self.device)
+        if obs.ndim == 1:
+            # Expand to have batch_size = 1
+            obs = np.expand_dims(obs, axis=0)
+
+        obs = torch.tensor(obs, dtype=torch.float)
         q_values = self.forward(obs)
         action = torch.argmax(q_values, dim=1).item()
         return action
@@ -74,8 +81,9 @@ class QNet(nn.Module):
         action = batch['action']
         reward = batch['reward']
         done = batch['done']
-
-        action = action.to(self.device, dtype=torch.long)
+        for key, value in batch.items():
+            print(key, value.shape)
+        action = action.to(dtype=torch.int64)
         # Compute current Q values
         current_q_values = self.q_net(obs).gather(1, action)
         # Compute target Q values
@@ -95,10 +103,14 @@ class ImpalaTrainer:
         self.args: RLArguments = args
         self.setup_device()
         self.env: gym.Env = make_env(self.args.env_id)
+        state_shape = self.env.observation_space.shape or self.env.observation_space.n
+        action_shape = self.env.action_space.shape or self.env.action_space.n
+        self.obs_dim = int(np.prod(state_shape))
+        self.action_dim = int(np.prod(action_shape))
         self.actor_model = self.setup_model()
         self.learner_model = self.setup_model()
         self.optimizer = self.setup_optimizer()
-        self.buffers = self.create_buffers()
+        self.buffers = collections.deque(maxlen=10000)  # 队列,先进先出
         self.global_step = 0
 
     def setup_device(self):
@@ -110,10 +122,7 @@ class ImpalaTrainer:
             self.args.device = torch.device('cpu')
 
     def setup_model(self):
-        return QNet(
-            self.env.observation_space.shape,
-            self.env.action_space.n,
-        ).to(device=self.args.device)
+        return QNet(self.obs_dim, self.action_dim).to(device=self.args.device)
 
     def setup_optimizer(self):
         optimizer = torch.optim.RMSprop(
@@ -129,31 +138,31 @@ class ImpalaTrainer:
     def create_buffers(self) -> dict[str, list]:
         specs = dict(
             obs=dict(
-                size=(self.args.rollout_length + 1,
-                      *self.env.observation_space.shape),
-                dtype=torch.float32,
+                shape=(self.args.rollout_length + 1,
+                       *self.env.observation_space.shape),
+                dtype=np.float32,
             ),
             next_obs=dict(
-                size=(self.args.rollout_length + 1,
-                      *self.env.observation_space.shape),
-                dtype=torch.float32,
+                shape=(self.args.rollout_length + 1,
+                       *self.env.observation_space.shape),
+                dtype=np.float32,
             ),
-            reward=dict(size=(self.args.rollout_length + 1, ),
-                        dtype=torch.float32),
-            done=dict(size=(self.args.rollout_length + 1, ), dtype=torch.bool),
-            action=dict(size=(self.args.rollout_length + 1, ),
-                        dtype=torch.int64),
+            reward=dict(shape=(self.args.rollout_length + 1, ),
+                        dtype=np.float32),
+            done=dict(shape=(self.args.rollout_length + 1, ),
+                      dtype=np.float32),
+            action=dict(shape=(self.args.rollout_length + 1, ),
+                        dtype=np.int64),
         )
         buffers = {key: [] for key in specs}
         for _ in range(self.args.num_buffers):
             for key, spec in specs.items():
-                buffer_tensor = torch.empty(**spec).share_memory_()
+                buffer_tensor = np.empty(**spec)
                 buffers[key].append(buffer_tensor)
         return buffers
 
     def get_action(
         self,
-        args,
         actor_index: int,
         free_queue: mp.SimpleQueue,
         full_queue: mp.SimpleQueue,
@@ -170,10 +179,14 @@ class ImpalaTrainer:
                 if index is None:
                     break
 
-                for t in range(args.rollout_length):
-                    action = actor_model.get_action(obs)
+                for t in range(self.args.rollout_length):
+                    with torch.no_grad():
+
+                        action = actor_model.get_action(obs)
+
                     next_obs, reward, terminated, truncated, info = gym_env.step(
                         action)
+
                     done = terminated or truncated
                     buffers['obs'][index][t, ...] = obs
                     buffers['next_obs'][index][t, ...] = next_obs
@@ -197,12 +210,12 @@ class ImpalaTrainer:
     ) -> dict[str, torch.Tensor]:
         indices = [full_queue.get() for _ in range(self.args.batch_size)]
         batch = {
-            key: torch.stack([buffers[key][m] for m in indices], dim=1)
+            key: np.stack([buffers[key][m] for m in indices], axis=1)
             for key in buffers
         }
         batch = {
-            k: t.to(device=self.args.device, non_blocking=True)
-            for k, t in batch.items()
+            key: torch.tensor(value, device=self.args.device)
+            for key, value in batch.items()
         }
         for m in indices:
             free_queue.put(m)
@@ -232,11 +245,10 @@ class ImpalaTrainer:
             actor = ctx.Process(
                 target=self.get_action,
                 args=(
-                    self.args,
                     actor_index,
                     free_queue,
                     full_queue,
-                    self.model,
+                    self.actor_model,
                     self.buffers,
                 ),
             )
@@ -249,7 +261,7 @@ class ImpalaTrainer:
             while self.global_step < self.args.total_steps:
                 start_step = self.global_step
                 start_time = timeit.default_timer()
-                batch = self.get_batch(free_queue, full_queue)
+                batch = self.get_batch(free_queue, full_queue, self.buffers)
                 loss = self.learn(
                     self.actor_model,
                     self.learner_model,
