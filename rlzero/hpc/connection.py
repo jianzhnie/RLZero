@@ -1,17 +1,16 @@
 import io
-import struct
-import socket
-import pickle
-import threading
-import queue
 import multiprocessing as mp
 import multiprocessing.connection as connection
-from typing import Any, Generator, Callable, List, Tuple, Optional
+import pickle
+import queue
+import socket
+import struct
+import threading
+from typing import Any, Callable, Generator, List, Optional, Tuple
 
 
 def send_recv(conn: connection.Connection, sdata: Any) -> Any:
-    """
-    Send data through the connection and wait to receive a response.
+    """Send data through the connection and wait to receive a response.
 
     Args:
         conn (connection.Connection): Connection object for communication.
@@ -25,9 +24,8 @@ def send_recv(conn: connection.Connection, sdata: Any) -> Any:
 
 
 class PickledConnection:
-    """
-    A class to handle sending and receiving pickled (serialized) data over a connection.
-    """
+    """A class to handle sending and receiving pickled (serialized) data over a
+    connection."""
 
     def __init__(self, conn: socket.socket):
         self.conn = conn
@@ -51,17 +49,18 @@ class PickledConnection:
         while size > 0:
             chunk = self.conn.recv(size)
             if len(chunk) == 0:
-                raise ConnectionResetError("Connection reset by peer")
+                raise ConnectionResetError('Connection reset by peer')
             size -= len(chunk)
             buf.write(chunk)
         return buf
 
     def recv(self) -> Any:
-        """
-        Receive a complete message. The first 4 bytes represent the size of the message.
+        """Receive a complete message.
+
+        The first 4 bytes represent the size of the message.
         """
         buf = self._recv(4)
-        (size,) = struct.unpack("!i", buf.getvalue())
+        (size, ) = struct.unpack('!i', buf.getvalue())
         buf = self._recv(size)
         return pickle.loads(buf.getvalue())
 
@@ -74,20 +73,18 @@ class PickledConnection:
             buf = buf[n:]
 
     def send(self, msg: Any) -> None:
-        """
-        Send a serialized message, prepending the size as a 4-byte header.
-        """
+        """Send a serialized message, prepending the size as a 4-byte
+        header."""
         buf = pickle.dumps(msg)
         n = len(buf)
-        header = struct.pack("!i", n)
+        header = struct.pack('!i', n)
         chunks = [header + buf] if n <= 16384 else [header, buf]
         for chunk in chunks:
             self._send(chunk)
 
 
 def open_socket_connection(port: int, reuse: bool = False) -> socket.socket:
-    """
-    Open a socket connection on a specified port.
+    """Open a socket connection on a specified port.
 
     Args:
         port (int): Port number to bind the socket to.
@@ -98,13 +95,13 @@ def open_socket_connection(port: int, reuse: bool = False) -> socket.socket:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 if reuse else 0)
-    sock.bind(("", port))
+    sock.bind(('', port))
     return sock
 
 
-def accept_socket_connection(sock: socket.socket) -> Optional[PickledConnection]:
-    """
-    Accept a socket connection and return a PickledConnection wrapper.
+def accept_socket_connection(
+        sock: socket.socket) -> Optional[PickledConnection]:
+    """Accept a socket connection and return a PickledConnection wrapper.
 
     Args:
         sock (socket.socket): The listening socket.
@@ -119,9 +116,9 @@ def accept_socket_connection(sock: socket.socket) -> Optional[PickledConnection]
         return None
 
 
-def listen_socket_connections(n: int, port: int) -> List[Optional[PickledConnection]]:
-    """
-    Listen for a specified number of socket connections.
+def listen_socket_connections(n: int,
+                              port: int) -> List[Optional[PickledConnection]]:
+    """Listen for a specified number of socket connections.
 
     Args:
         n (int): Number of connections to accept.
@@ -136,8 +133,7 @@ def listen_socket_connections(n: int, port: int) -> List[Optional[PickledConnect
 
 
 def connect_socket_connection(host: str, port: int) -> PickledConnection:
-    """
-    Connect to a remote host and port, returning a PickledConnection.
+    """Connect to a remote host and port, returning a PickledConnection.
 
     Args:
         host (str): Host address.
@@ -150,15 +146,16 @@ def connect_socket_connection(host: str, port: int) -> PickledConnection:
     try:
         sock.connect((host, port))
     except ConnectionRefusedError:
-        raise ConnectionError(f"Failed to connect to {host}:{port}")
+        raise ConnectionError(f'Failed to connect to {host}:{port}')
     return PickledConnection(sock)
 
 
 def accept_socket_connections(
-    port: int, timeout: Optional[float] = None, maxsize: int = 1024
+        port: int,
+        timeout: Optional[float] = None,
+        maxsize: int = 1024
 ) -> Generator[Optional[PickledConnection], None, None]:
-    """
-    Accept multiple socket connections.
+    """Accept multiple socket connections.
 
     Args:
         port (int): Port number to listen on.
@@ -184,8 +181,7 @@ def open_multiprocessing_connections(
     target: Callable,
     args_func: Callable[[int, connection.Connection], Tuple],
 ) -> List[connection.Connection]:
-    """
-    Open multiprocessing connections and start workers.
+    """Open multiprocessing connections and start workers.
 
     Args:
         num_process (int): Number of worker processes.
@@ -209,9 +205,8 @@ def open_multiprocessing_connections(
 
 
 class MultiProcessJobExecutor:
-    """
-    Executor for managing and dispatching jobs to multiple worker processes.
-    """
+    """Executor for managing and dispatching jobs to multiple worker
+    processes."""
 
     def __init__(
         self,
@@ -220,8 +215,7 @@ class MultiProcessJobExecutor:
         num_workers: int,
         postprocess: Optional[Callable] = None,
     ):
-        """
-        Initialize the executor with worker processes.
+        """Initialize the executor with worker processes.
 
         Args:
             func (Callable): Worker process function.
@@ -253,16 +247,16 @@ class MultiProcessJobExecutor:
 
     def _sender(self) -> None:
         """Continuously send data to available workers."""
-        print("start sender")
+        print('start sender')
         while True:
             data = next(self.send_generator)
             conn = self.waiting_conns.get()
             conn.send(data)
-        print("finished sender")
+        print('finished sender')
 
     def _receiver(self) -> None:
         """Continuously receive data from workers and enqueue the results."""
-        print("start receiver")
+        print('start receiver')
         while True:
             conns = connection.wait(self.conns)
             for conn in conns:
@@ -271,17 +265,14 @@ class MultiProcessJobExecutor:
                 if self.postprocess is not None:
                     data = self.postprocess(data)
                 self.output_queue.put(data)
-        print("finished receiver")
+        print('finished receiver')
 
 
 class QueueCommunicator:
-    """
-    Class for handling asynchronous communication using queues.
-    """
+    """Class for handling asynchronous communication using queues."""
 
     def __init__(self, conns: List[connection.Connection] = []):
-        """
-        Initialize the communicator with a set of connections.
+        """Initialize the communicator with a set of connections.
 
         Args:
             conns (List[connection.Connection]): Initial set of connections.
@@ -310,7 +301,7 @@ class QueueCommunicator:
 
     def disconnect(self, conn: connection.Connection) -> None:
         """Disconnect and remove a connection."""
-        print("disconnected")
+        print('disconnected')
         self.conns.discard(conn)
 
     def _send_thread(self) -> None:

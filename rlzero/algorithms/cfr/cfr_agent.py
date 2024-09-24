@@ -10,7 +10,7 @@ class CFRAgent:
     """Implement CFR (chance sampling) algorithm."""
 
     def __init__(self, env, model_path='./cfr_model'):
-        """Initilize Agent.
+        """Initialize Agent.
 
         Args:
             env (Env): Env class
@@ -126,7 +126,7 @@ class CFRAgent:
 
         Args:
             obs (str): state_str
-            legal_actions (list): List of leagel actions
+            legal_actions (list): List of legal actions
             player_id (int): The current player
             policy (dict): The used policy
 

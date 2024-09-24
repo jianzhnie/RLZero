@@ -412,7 +412,7 @@ class InfoSet(object):
         self.last_move = None
         # The most recent two moves
         self.last_two_moves = None
-        # The last moves for all the postions
+        # The last moves for all the positions
         self.last_move_dict = None
         # The played cands so far. It is a list.
         self.played_cards = None
