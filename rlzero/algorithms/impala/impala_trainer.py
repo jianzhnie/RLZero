@@ -237,7 +237,7 @@ class ImpalaTrainer:
 
     def train(self) -> None:
         actor_processes = []
-        ctx = mp.get_context('fork')
+        ctx = mp.get_context('spawn')
         free_queue = ctx.SimpleQueue()
         full_queue = ctx.SimpleQueue()
 
