@@ -1,3 +1,4 @@
+import math
 import multiprocessing as mp
 import random
 import traceback
@@ -15,6 +16,10 @@ from gymnasium.wrappers import RecordEpisodeStatistics
 from rlzero.utils.logger_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def ceil_to_nearest_hundred(num: int):
+    return math.ceil(num / 100) * 100
 
 
 def make_env(
@@ -139,10 +144,12 @@ class ImpalaDQN:
                  state_dim: int,
                  action_dim: int,
                  num_actors: int = 4,
-                 max_timesteps: int = 10000,
+                 max_timesteps: int = 50000,
                  buffer_size: int = 10000,
                  eps_greedy: float = 0.1,
-                 target_update_frequency: int = 1000,
+                 eval_interval: int = 200,
+                 train_log_interval: int = 1000,
+                 target_update_frequency: int = 2000,
                  double_dqn: bool = True,
                  gamma: float = 0.99,
                  batch_size: int = 32,
@@ -154,6 +161,8 @@ class ImpalaDQN:
         self.max_timesteps = max_timesteps
         self.buffer_size = buffer_size
         self.eps_greedy = eps_greedy
+        self.eval_interval = eval_interval
+        self.train_log_interval = train_log_interval
         self.target_update_frequency = target_update_frequency
         self.double_dqn = double_dqn
         self.gamma = gamma
@@ -317,11 +326,24 @@ class ImpalaDQN:
                 if len(self.replay_buffer) >= self.batch_size:
                     batch = self.replay_buffer.sample(self.batch_size)
                     learn_result = self.learn(batch)
-                    print('learn_result', learn_result)
 
-                if self.global_step % self.target_update_frequency == 0:
+                    if ceil_to_nearest_hundred(
+                            self.global_step) % self.train_log_interval == 0:
+                        logger.info(
+                            f'Step {self.global_step}: Train results: {learn_result}'
+                        )
+
+                if ceil_to_nearest_hundred(
+                        self.global_step) % self.target_update_frequency == 0:
                     self.target_network.load_state_dict(
                         self.q_network.state_dict())
+
+                if ceil_to_nearest_hundred(
+                        self.global_step) % self.eval_interval == 0:
+                    eval_results = self.evaluate()
+                    logger.info(
+                        f'Step {self.global_step}: Evaluation results: {eval_results}'
+                    )
 
         except Exception as e:
             logger.error(f'Exception in learner process: {e}')
@@ -337,16 +359,17 @@ class ImpalaDQN:
         Returns:
             dict[str, float]: Evaluation results.
         """
+        test_env = make_env(env_id='CartPole-v1')
         eval_rewards = []
         eval_steps = []
         for _ in range(n_eval_episodes):
-            obs, info = self.test_env.reset()
+            obs, info = test_env.reset()
             done = False
             episode_reward = 0.0
             episode_step = 0
             while not done:
                 action = self.predict(obs)
-                next_obs, reward, terminated, truncated, info = self.test_env.step(
+                next_obs, reward, terminated, truncated, info = test_env.step(
                     action)
                 obs = next_obs
                 done = terminated or truncated
@@ -358,7 +381,7 @@ class ImpalaDQN:
                     episode_reward = info_item['r']
                     episode_step = info_item['l']
                 if done:
-                    self.test_env.reset()
+                    test_env.reset()
             eval_rewards.append(episode_reward)
             eval_steps.append(episode_step)
 
