@@ -23,6 +23,18 @@ def make_env(
     save_video_dir: str = 'work_dir',
     save_video_name: str = 'test',
 ) -> RecordEpisodeStatistics:
+    """Create and wrap the environment with necessary wrappers.
+
+    Args:
+        env_id (str): ID of the environment.
+        seed (int): Random seed.
+        capture_video (bool): Whether to capture video.
+        save_video_dir (str): Directory to save video.
+        save_video_name (str): Name of the video file.
+
+    Returns:
+        RecordEpisodeStatistics: Wrapped environment.
+    """
     if capture_video:
         env = gym.make(env_id, render_mode='rgb_array')
         env = gym.wrappers.RecordVideo(env,
@@ -119,6 +131,7 @@ class ImpalaDQN:
         gamma (float): Discount factor for future rewards.
         batch_size (int): Number of experiences to sample for training.
         lr (float): Learning rate for the optimizer.
+        device (str): Device to use for training (e.g., 'cpu' or 'cuda').
     """
 
     def __init__(self,
@@ -145,13 +158,12 @@ class ImpalaDQN:
         self.lr = lr
         self.device = device
 
-        self.q_network = QNetwork(state_dim, action_dim)
-        self.target_network = QNetwork(state_dim, action_dim)
+        self.q_network = QNetwork(state_dim, action_dim).to(device)
+        self.target_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
 
         self.data_queue = mp.Queue(maxsize=100)
-        self.param_queue = mp.Queue()
         self.replay_buffer = ReplayBuffer(buffer_size)
         self.global_step = 0
 
@@ -262,15 +274,20 @@ class ImpalaDQN:
                 if len(self.replay_buffer) >= self.batch_size:
                     batch = self.replay_buffer.sample(self.batch_size)
 
-                    states = torch.tensor(batch['states'], dtype=torch.float32)
+                    states = torch.tensor(batch['states'],
+                                          dtype=torch.float32).to(self.device)
                     actions = torch.tensor(batch['actions'],
-                                           dtype=torch.long).unsqueeze(1)
-                    rewards = torch.tensor(batch['rewards'],
-                                           dtype=torch.float32).unsqueeze(1)
+                                           dtype=torch.long).unsqueeze(1).to(
+                                               self.device)
+                    rewards = torch.tensor(
+                        batch['rewards'],
+                        dtype=torch.float32).unsqueeze(1).to(self.device)
                     next_states = torch.tensor(batch['next_states'],
-                                               dtype=torch.float32)
+                                               dtype=torch.float32).to(
+                                                   self.device)
                     dones = torch.tensor(batch['dones'],
-                                         dtype=torch.float32).unsqueeze(1)
+                                         dtype=torch.float32).unsqueeze(1).to(
+                                             self.device)
 
                     with torch.no_grad():
                         next_q_values = self.target_network(next_states).max(
@@ -298,6 +315,14 @@ class ImpalaDQN:
             logger.info('Learner process is shutting down')
 
     def evaluate(self, n_eval_episodes: int = 5) -> dict[str, float]:
+        """Evaluate the model on the test environment.
+
+        Args:
+            n_eval_episodes (int): Number of episodes to evaluate.
+
+        Returns:
+            dict[str, float]: Evaluation results.
+        """
         eval_rewards = []
         eval_steps = []
         for _ in range(n_eval_episodes):
