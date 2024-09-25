@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import random
+import traceback
 from collections import deque
 from typing import Dict, List, Tuple
 
@@ -8,6 +9,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+from rlzero.utils.logger_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class QNetwork(nn.Module):
@@ -143,7 +148,7 @@ class ImpalaDQN:
         return action
 
     def actor_process(self, actor_id: int, env: gym.Env, data_queue: mp.Queue,
-                      stop_event: mp.Event):
+                      param_queue: mp.Queue, stop_event: mp.Event):
         """Actor process that interacts with the environment and collects
         experiences.
 
@@ -154,6 +159,7 @@ class ImpalaDQN:
             data_queue (mp.Queue): Queue to send collected experiences to the learner.
             stop_event (mp.Event): Event to signal the actor to stop.
         """
+        logger.info(f'Actor {actor_id} started')
         state, _ = env.reset()
         buffer: List[Tuple[np.ndarray, int, float, np.ndarray, bool]] = []
         done = False
@@ -166,15 +172,18 @@ class ImpalaDQN:
                 done = terminal or truncated
                 buffer.append((state, action, reward, next_state, done))
                 state = next_state
+            data_queue.put(buffer)
+            logger.info(f'Actor {actor_id} finished')
+
         except KeyboardInterrupt:
             stop_event.set()
-        finally:
-            data_queue.put(buffer)
+        except Exception as e:
+            logger.error(f'Exception in actor process {actor_id}')
+            traceback.print_exc()
+            raise e
 
     def learner_process(self, data_queue: mp.Queue, param_queue: mp.Queue,
-                        q_network: QNetwork, target_network: QNetwork,
-                        optimizer: optim.Optimizer,
-                        replay_buffer: ReplayBuffer, stop_event: mp.Event):
+                        stop_event: mp.Event):
         """Learner process that trains the Q-network using experiences from the
         actors.
 
@@ -195,10 +204,10 @@ class ImpalaDQN:
                 actor_step = len(data)
                 self.global_step += actor_step
                 for experience in data:
-                    replay_buffer.add(experience)
+                    self.replay_buffer.add(experience)
 
-            if len(replay_buffer) >= self.batch_size:
-                batch = replay_buffer.sample(self.batch_size)
+            if len(self.replay_buffer) >= self.batch_size:
+                batch = self.replay_buffer.sample(self.batch_size)
 
                 states = torch.tensor(batch['states'], dtype=torch.float32)
                 actions = torch.tensor(batch['actions'],
@@ -211,45 +220,46 @@ class ImpalaDQN:
                                      dtype=torch.float32).view(-1, 1)
 
                 with torch.no_grad():
-                    next_q_values = target_network(next_states).max(
+                    next_q_values = self.target_network(next_states).max(
                         1, keepdim=True)[0]
                     expected_q_values = rewards + self.gamma * next_q_values * (
                         1 - dones)
 
-                q_values = q_network(states).gather(1, actions)
+                q_values = self.q_network(states).gather(1, actions)
                 loss = (q_values - expected_q_values).pow(2).mean()
 
-                print(f'global_step: {self.global_step}, loss: {loss.item()}')
-                optimizer.zero_grad()
+                logger.info(
+                    f'global_step: {self.global_step}, loss: {loss.item()}')
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
                 if np.random.rand() < 0.01:
-                    target_network.load_state_dict(q_network.state_dict())
+                    self.target_network.load_state_dict(
+                        self.q_network.state_dict())
 
-                param_queue.put(q_network.state_dict())
+                param_queue.put(self.q_network.state_dict())
 
     def run(self) -> None:
         """Run the IMPALA DQN algorithm."""
         stop_event = mp.Event()
-        actors = []
+        actor_processes = []
         for i in range(self.num_actors):
             env = gym.make('CartPole-v1')
             actor = mp.Process(target=self.actor_process,
-                               args=(i, env, self.data_queue, stop_event))
+                               args=(i, env, self.data_queue, self.param_queue,
+                                     stop_event))
             actor.daemon = True
-            actors.append(actor)
             actor.start()
+            actor_processes.append(actor)
 
         learner = mp.Process(target=self.learner_process,
                              args=(self.data_queue, self.param_queue,
-                                   self.q_network, self.target_network,
-                                   self.optimizer, self.replay_buffer,
                                    stop_event))
         learner.start()
 
         try:
-            for actor in actors:
+            for actor in actor_processes:
                 actor.join()
             learner.join()
         except KeyboardInterrupt:
