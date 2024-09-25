@@ -109,6 +109,7 @@ class ImpalaDQN:
                  max_timesteps: int = 10000,
                  buffer_size: int = 10000,
                  eps_greedy: float = 0.1,
+                 target_update_frequency: int = 1000,
                  gamma: float = 0.99,
                  batch_size: int = 32,
                  lr: float = 0.001):
@@ -118,6 +119,7 @@ class ImpalaDQN:
         self.max_timesteps = max_timesteps
         self.buffer_size = buffer_size
         self.eps_greedy = eps_greedy
+        self.target_update_frequency = target_update_frequency
         self.gamma = gamma
         self.batch_size = batch_size
         self.lr = lr
@@ -127,7 +129,7 @@ class ImpalaDQN:
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
 
-        self.data_queue = mp.Queue()
+        self.data_queue = mp.Queue(maxsize=100)
         self.param_queue = mp.Queue()
         self.replay_buffer = ReplayBuffer(buffer_size)
         self.global_step = 0
@@ -241,16 +243,15 @@ class ImpalaDQN:
                     q_values = self.q_network(states).gather(1, actions)
                     loss = (q_values - expected_q_values).pow(2).mean()
 
-                    logger.info(
-                        f'global_step: {self.global_step}, loss: {loss.item()}'
-                    )
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
 
-                    if np.random.rand() < 0.01:
-                        self.target_network.load_state_dict(
-                            self.q_network.state_dict())
+                if self.global_step % self.target_update_frequency == 0:
+                    self.target_network.load_state_dict(
+                        self.q_network.state_dict())
+                logger.info(
+                    f'global_step: {self.global_step}, loss: {loss.item()}')
         except Exception as e:
             logger.error(f'Exception in learner process: {e}')
         finally:
