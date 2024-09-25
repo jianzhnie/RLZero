@@ -8,7 +8,6 @@ import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from gymnasium.wrappers import RecordEpisodeStatistics
 
@@ -143,7 +142,6 @@ class ImpalaDQN:
                  buffer_size: int = 10000,
                  eps_greedy: float = 0.1,
                  target_update_frequency: int = 1000,
-                 double_dqn: bool = True,
                  gamma: float = 0.99,
                  batch_size: int = 32,
                  lr: float = 0.001,
@@ -155,7 +153,6 @@ class ImpalaDQN:
         self.buffer_size = buffer_size
         self.eps_greedy = eps_greedy
         self.target_update_frequency = target_update_frequency
-        self.double_dqn = double_dqn
         self.gamma = gamma
         self.batch_size = batch_size
         self.lr = lr
@@ -169,6 +166,10 @@ class ImpalaDQN:
         self.data_queue = mp.Queue(maxsize=100)
         self.replay_buffer = ReplayBuffer(buffer_size)
         self.global_step = 0
+
+        # Shared memory for global statistics
+        self.global_episode_rewards = mp.Manager().list()
+        self.global_episode_steps = mp.Manager().list()
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         """Get action from the actor network.
@@ -207,7 +208,7 @@ class ImpalaDQN:
         return action
 
     def actor_process(self, actor_id: int, env: gym.Env, data_queue: mp.Queue,
-                      stop_event: mp.Event) -> None:
+                      stop_event: mp.Event):
         """Actor process that interacts with the environment and collects
         experiences.
 
@@ -224,23 +225,24 @@ class ImpalaDQN:
                 buffer: List[Tuple[np.ndarray, int, float, np.ndarray,
                                    bool]] = []
                 done = False
+                episode_reward = 0.0
+                episode_step = 0
                 while not done:
                     action = self.get_action(state)
                     next_state, reward, terminal, truncated, info = env.step(
                         action)
                     done = terminal or truncated
-                    if info and 'episode' in info:
-                        info_item = {
-                            k: v.item()
-                            for k, v in info['episode'].items()
-                        }
-                        episode_reward = info_item['r']
-                        episode_step = info_item['l']
+                    episode_reward += reward
+                    episode_step += 1
 
                     buffer.append((state, action, reward, next_state, done))
                     state = next_state
                 if buffer:
                     data_queue.put(buffer)
+
+                # Update global statistics
+                self.global_episode_rewards.append(episode_reward)
+                self.global_episode_steps.append(episode_step)
 
                 if actor_id == 0:
                     logger.info(
@@ -250,46 +252,6 @@ class ImpalaDQN:
         except Exception as e:
             logger.error(f'Exception in actor process {actor_id}: {e}')
             traceback.print_exc()
-
-    def learn(self, batch: Dict[str, np.array]) -> None:
-        states = torch.tensor(batch['states'],
-                              dtype=torch.float32).to(self.device)
-        actions = torch.tensor(batch['actions'],
-                               dtype=torch.long).unsqueeze(1).to(self.device)
-        rewards = torch.tensor(
-            batch['rewards'], dtype=torch.float32).unsqueeze(1).to(self.device)
-        next_states = torch.tensor(batch['next_states'],
-                                   dtype=torch.float32).to(self.device)
-        dones = torch.tensor(batch['dones'],
-                             dtype=torch.float32).unsqueeze(1).to(self.device)
-
-        # Compute current Q values
-        current_q_values = self.q_network(states).gather(1, actions)
-        # Compute target Q values
-        if self.double_dqn:
-            with torch.no_grad():
-                greedy_action = self.q_network(next_states).max(
-                    dim=1, keepdim=True)[1]
-                next_q_values = self.target_network(next_states).gather(
-                    1, greedy_action)
-        else:
-            with torch.no_grad():
-                next_q_values = self.target_network(next_states).max(
-                    dim=1, keepdim=True)[0]
-
-        target_q_values = (rewards + (1 - dones) * self.gamma * next_q_values)
-
-        # Compute loss
-        loss = F.mse_loss(current_q_values, target_q_values, reduction='mean')
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        learn_result = {
-            'loss': loss.item(),
-        }
-        return learn_result
 
     def learner_process(self, data_queue: mp.Queue, stop_event: mp.Event):
         """Learner process that trains the Q-network using experiences from the
@@ -305,7 +267,7 @@ class ImpalaDQN:
             ):
                 try:
                     # Non-blocking with timeout
-                    data = data_queue.get(timeout=0.01)
+                    data = data_queue.get(timeout=0.1)
                 except data_queue.Empty:
                     continue  # 如果队列为空，继续循环
 
@@ -316,12 +278,49 @@ class ImpalaDQN:
 
                 if len(self.replay_buffer) >= self.batch_size:
                     batch = self.replay_buffer.sample(self.batch_size)
-                    learn_result = self.learn(batch)
-                    print('learn_result', learn_result)
+
+                    states = torch.tensor(batch['states'],
+                                          dtype=torch.float32).to(self.device)
+                    actions = torch.tensor(batch['actions'],
+                                           dtype=torch.long).unsqueeze(1).to(
+                                               self.device)
+                    rewards = torch.tensor(
+                        batch['rewards'],
+                        dtype=torch.float32).unsqueeze(1).to(self.device)
+                    next_states = torch.tensor(batch['next_states'],
+                                               dtype=torch.float32).to(
+                                                   self.device)
+                    dones = torch.tensor(batch['dones'],
+                                         dtype=torch.float32).unsqueeze(1).to(
+                                             self.device)
+
+                    with torch.no_grad():
+                        next_q_values = self.target_network(next_states).max(
+                            1, keepdim=True)[0]
+                        expected_q_values = rewards + self.gamma * next_q_values * (
+                            1 - dones)
+
+                    q_values = self.q_network(states).gather(1, actions)
+                    loss = (q_values - expected_q_values).pow(2).mean()
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+                    logger.info(
+                        f'global_step: {self.global_step}, loss: {loss.item()}'
+                    )
 
                 if self.global_step % self.target_update_frequency == 0:
                     self.target_network.load_state_dict(
                         self.q_network.state_dict())
+
+                # Log global statistics
+                if self.global_step % 1000 == 0:
+                    mean_reward = np.mean(self.global_episode_rewards)
+                    mean_steps = np.mean(self.global_episode_steps)
+                    logger.info(
+                        f'Global step: {self.global_step}, Mean episode reward: {mean_reward}, Mean episode steps: {mean_steps}'
+                    )
 
         except Exception as e:
             logger.error(f'Exception in learner process: {e}')
