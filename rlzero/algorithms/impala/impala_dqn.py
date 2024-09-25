@@ -184,15 +184,11 @@ class ImpalaDQN:
                     state = next_state
                 if buffer:
                     data_queue.put(buffer)
-                logger.info(f'Actor {actor_id} finished')
-                buffer.clear()
+                logger.info(f'Actor {actor_id} finished an episode')
 
-        except KeyboardInterrupt:
-            stop_event.set()
         except Exception as e:
-            logger.error(f'Exception in actor process {actor_id}')
+            logger.error(f'Exception in actor process {actor_id}: {e}')
             traceback.print_exc()
-            raise e
 
     def learner_process(self, data_queue: mp.Queue, stop_event: mp.Event):
         """Learner process that trains the Q-network using experiences from the
@@ -212,7 +208,8 @@ class ImpalaDQN:
             while self.global_step < self.max_timesteps and not stop_event.is_set(
             ):
                 try:
-                    data = data_queue.get()
+                    # Non-blocking with timeout
+                    data = data_queue.get(timeout=0.1)
                 except data_queue.Empty:
                     continue  # 如果队列为空，继续循环
 
@@ -226,13 +223,13 @@ class ImpalaDQN:
 
                     states = torch.tensor(batch['states'], dtype=torch.float32)
                     actions = torch.tensor(batch['actions'],
-                                           dtype=torch.long).view(-1, 1)
+                                           dtype=torch.long).unsqueeze(1)
                     rewards = torch.tensor(batch['rewards'],
-                                           dtype=torch.float32).view(-1, 1)
+                                           dtype=torch.float32).unsqueeze(1)
                     next_states = torch.tensor(batch['next_states'],
                                                dtype=torch.float32)
                     dones = torch.tensor(batch['dones'],
-                                         dtype=torch.float32).view(-1, 1)
+                                         dtype=torch.float32).unsqueeze(1)
 
                     with torch.no_grad():
                         next_q_values = self.target_network(next_states).max(
@@ -246,12 +243,14 @@ class ImpalaDQN:
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
+                    logger.info(
+                        f'global_step: {self.global_step}, loss: {loss.item()}'
+                    )
 
                 if self.global_step % self.target_update_frequency == 0:
                     self.target_network.load_state_dict(
                         self.q_network.state_dict())
-                logger.info(
-                    f'global_step: {self.global_step}, loss: {loss.item()}')
+
         except Exception as e:
             logger.error(f'Exception in learner process: {e}')
         finally:
@@ -265,7 +264,6 @@ class ImpalaDQN:
             env = gym.make('CartPole-v1')
             actor = mp.Process(target=self.actor_process,
                                args=(i, env, self.data_queue, stop_event))
-            actor.daemon = True
             actor.start()
             actor_processes.append(actor)
 
