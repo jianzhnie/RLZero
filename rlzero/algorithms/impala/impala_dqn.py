@@ -15,7 +15,7 @@ from gymnasium.wrappers import RecordEpisodeStatistics
 
 from rlzero.utils.logger_utils import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger('impala')
 
 
 def ceil_to_nearest_hundred(num: int):
@@ -136,7 +136,7 @@ class ImpalaDQN:
         buffer_size (int): Maximum size of the replay buffer.
         gamma (float): Discount factor for future rewards.
         batch_size (int): Number of experiences to sample for training.
-        lr (float): Learning rate for the optimizer.
+        learning_rate (float): Learning rate for the optimizer.
         device (str): Device to use for training (e.g., 'cpu' or 'cuda').
     """
 
@@ -144,16 +144,16 @@ class ImpalaDQN:
                  state_dim: int,
                  action_dim: int,
                  num_actors: int = 4,
-                 max_timesteps: int = 50000,
+                 max_timesteps: int = 10000,
                  buffer_size: int = 10000,
                  eps_greedy: float = 0.1,
-                 eval_interval: int = 200,
+                 eval_interval: int = 1000,
                  train_log_interval: int = 1000,
                  target_update_frequency: int = 2000,
                  double_dqn: bool = True,
                  gamma: float = 0.99,
                  batch_size: int = 32,
-                 lr: float = 0.001,
+                 learning_rate: float = 0.001,
                  device: str = 'cpu') -> None:
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -167,13 +167,13 @@ class ImpalaDQN:
         self.double_dqn = double_dqn
         self.gamma = gamma
         self.batch_size = batch_size
-        self.lr = lr
+        self.learning_rate = learning_rate
         self.device = device
 
         self.q_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
 
         self.data_queue = mp.Queue(maxsize=100)
         self.replay_buffer = ReplayBuffer(buffer_size)
@@ -251,7 +251,9 @@ class ImpalaDQN:
                 if buffer:
                     data_queue.put(buffer)
 
-                if actor_id == 0:
+                global_step = ceil_to_nearest_hundred(
+                            self.global_step)
+                if actor_id == 0 and global_step % self.train_log_interval == 0:
                     logger.info(
                         'Actor {}: , episode step: {}, episode reward: {}'.
                         format(actor_id, episode_step, episode_reward), )
@@ -312,6 +314,8 @@ class ImpalaDQN:
         try:
             while self.global_step < self.max_timesteps and not stop_event.is_set(
             ):
+                global_step = ceil_to_nearest_hundred(
+                            self.global_step) 
                 try:
                     # Non-blocking with timeout
                     data = data_queue.get(timeout=0.01)
@@ -327,22 +331,19 @@ class ImpalaDQN:
                     batch = self.replay_buffer.sample(self.batch_size)
                     learn_result = self.learn(batch)
 
-                    if ceil_to_nearest_hundred(
-                            self.global_step) % self.train_log_interval == 0:
+                    if global_step % self.target_update_frequency == 0:
+                        self.target_network.load_state_dict(
+                            self.q_network.state_dict())
+                    
+                    if global_step % self.train_log_interval == 0:
                         logger.info(
-                            f'Step {self.global_step}: Train results: {learn_result}'
+                            f'Step {global_step}: Train results: {learn_result}'
                         )
 
-                if ceil_to_nearest_hundred(
-                        self.global_step) % self.target_update_frequency == 0:
-                    self.target_network.load_state_dict(
-                        self.q_network.state_dict())
-
-                if ceil_to_nearest_hundred(
-                        self.global_step) % self.eval_interval == 0:
+                if global_step % self.eval_interval == 0:
                     eval_results = self.evaluate()
                     logger.info(
-                        f'Step {self.global_step}: Evaluation results: {eval_results}'
+                        f'Step {global_step}: Evaluation results: {eval_results}'
                     )
 
         except Exception as e:
