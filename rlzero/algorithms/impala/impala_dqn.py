@@ -9,10 +9,29 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from gymnasium.wrappers import RecordEpisodeStatistics
 
 from rlzero.utils.logger_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+def make_env(
+    env_id: str,
+    seed: int = 42,
+    capture_video: bool = False,
+    save_video_dir: str = 'work_dir',
+    save_video_name: str = 'test',
+) -> RecordEpisodeStatistics:
+    if capture_video:
+        env = gym.make(env_id, render_mode='rgb_array')
+        env = gym.wrappers.RecordVideo(env,
+                                       f'{save_video_dir}/{save_video_name}')
+    else:
+        env = gym.make(env_id)
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    env.action_space.seed(seed)
+    return env
 
 
 class QNetwork(nn.Module):
@@ -112,7 +131,8 @@ class ImpalaDQN:
                  target_update_frequency: int = 1000,
                  gamma: float = 0.99,
                  batch_size: int = 32,
-                 lr: float = 0.001):
+                 lr: float = 0.001,
+                 device: str = 'cpu') -> None:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.num_actors = num_actors
@@ -123,6 +143,7 @@ class ImpalaDQN:
         self.gamma = gamma
         self.batch_size = batch_size
         self.lr = lr
+        self.device = device
 
         self.q_network = QNetwork(state_dim, action_dim)
         self.target_network = QNetwork(state_dim, action_dim)
@@ -134,24 +155,40 @@ class ImpalaDQN:
         self.replay_buffer = ReplayBuffer(buffer_size)
         self.global_step = 0
 
-    def get_action(self, state: np.ndarray) -> int:
-        """Select an action based on the current state.
+    def get_action(self, obs: np.ndarray) -> np.ndarray:
+        """Get action from the actor network.
 
         Args:
-            state (np.ndarray): Current state.
+            obs (np.ndarray): Current observation.
+
+        Returns:
+            np.ndarray: Selected action.
+        """
+        # epsilon greedy policy
+        if np.random.rand() <= self.eps_greedy:
+            action = random.randint(0, self.action_dim - 1)
+        else:
+            action = self.predict(obs)
+
+        return action
+
+    def predict(self, obs: np.ndarray) -> int:
+        """Predict an action given an observation.
+
+        Args:
+            obs (np.ndarray): Current observation.
 
         Returns:
             int: Selected action.
         """
-        if random.random() < self.eps_greedy:
-            action = random.randint(0, self.action_dim - 1)
-        else:
-            with torch.no_grad():
-                if state.ndim == 1:
-                    state = np.expand_dims(state, axis=0)
-                state_tensor = torch.tensor(state, dtype=torch.float32)
-                q_values = self.q_network(state_tensor)
-                action = q_values.argmax().item()
+        if obs.ndim == 1:
+            # Expand to have batch_size = 1
+            obs = np.expand_dims(obs, axis=0)
+
+        obs = torch.tensor(obs, dtype=torch.float, device=self.device)
+        with torch.no_grad():
+            q_values = self.q_network(obs)
+        action = torch.argmax(q_values, dim=1).item()
         return action
 
     def actor_process(self, actor_id: int, env: gym.Env, data_queue: mp.Queue,
@@ -162,12 +199,10 @@ class ImpalaDQN:
         Args:
             actor_id (int): ID of the actor.
             env (gym.Env): Environment to interact with.
-            q_network (QNetwork): Q-network for action selection.
             data_queue (mp.Queue): Queue to send collected experiences to the learner.
             stop_event (mp.Event): Event to signal the actor to stop.
         """
         logger.info(f'Actor {actor_id} started')
-        episode_step = 0
         try:
             while not stop_event.is_set():
                 state, _ = env.reset()
@@ -176,15 +211,26 @@ class ImpalaDQN:
                 done = False
                 while not done:
                     action = self.get_action(state)
-                    next_state, reward, terminal, truncated, _ = env.step(
+                    next_state, reward, terminal, truncated, info = env.step(
                         action)
-                    episode_step += 1
                     done = terminal or truncated
+                    if info and 'episode' in info:
+                        info_item = {
+                            k: v.item()
+                            for k, v in info['episode'].items()
+                        }
+                        episode_reward = info_item['r']
+                        episode_step = info_item['l']
+
                     buffer.append((state, action, reward, next_state, done))
                     state = next_state
                 if buffer:
                     data_queue.put(buffer)
-                logger.info(f'Actor {actor_id} finished an episode')
+
+                if actor_id == 0:
+                    logger.info(
+                        'Actor {}: , episode step: {}, episode reward: {}'.
+                        format(actor_id, episode_step, episode_reward), )
 
         except Exception as e:
             logger.error(f'Exception in actor process {actor_id}: {e}')
@@ -196,11 +242,6 @@ class ImpalaDQN:
 
         Args:
             data_queue (mp.Queue): Queue to receive experiences from actors.
-            param_queue (mp.Queue): Queue to send updated parameters to actors.
-            q_network (QNetwork): Q-network to train.
-            target_network (QNetwork): Target network for stable training.
-            optimizer (optim.Optimizer): Optimizer for training the Q-network.
-            replay_buffer (ReplayBuffer): Replay buffer to store experiences.
             stop_event (mp.Event): Event to signal the learner to stop.
         """
 
@@ -256,14 +297,48 @@ class ImpalaDQN:
         finally:
             logger.info('Learner process is shutting down')
 
+    def evaluate(self, n_eval_episodes: int = 5) -> dict[str, float]:
+        eval_rewards = []
+        eval_steps = []
+        for _ in range(n_eval_episodes):
+            obs, info = self.test_env.reset()
+            done = False
+            episode_reward = 0.0
+            episode_step = 0
+            while not done:
+                action = self.predict(obs)
+                next_obs, reward, terminated, truncated, info = self.test_env.step(
+                    action)
+                obs = next_obs
+                done = terminated or truncated
+                if info and 'episode' in info:
+                    info_item = {
+                        k: v.item()
+                        for k, v in info['episode'].items()
+                    }
+                    episode_reward = info_item['r']
+                    episode_step = info_item['l']
+                if done:
+                    self.test_env.reset()
+            eval_rewards.append(episode_reward)
+            eval_steps.append(episode_step)
+
+        return {
+            'reward_mean': np.mean(eval_rewards),
+            'reward_std': np.std(eval_rewards),
+            'length_mean': np.mean(eval_steps),
+            'length_std': np.std(eval_steps),
+        }
+
     def run(self) -> None:
         """Run the IMPALA DQN algorithm."""
         stop_event = mp.Event()
         actor_processes = []
         for i in range(self.num_actors):
-            env = gym.make('CartPole-v1')
+            train_env = make_env(env_id='CartPole-v1')
             actor = mp.Process(target=self.actor_process,
-                               args=(i, env, self.data_queue, stop_event))
+                               args=(i, train_env, self.data_queue,
+                                     stop_event))
             actor.start()
             actor_processes.append(actor)
 
@@ -279,13 +354,13 @@ class ImpalaDQN:
         finally:
             stop_event.set()
             for actor in actor_processes:
-                actor.join(timeout=5)  # 给予一定的时间让进程正常结束
+                actor.join(timeout=1)  # 给予一定的时间让进程正常结束
                 if actor.is_alive():
                     logger.warning(
                         f'Actor process {actor.pid} did not terminate, force terminating...'
                     )
                     actor.terminate()
-            learner.join(timeout=5)
+            learner.join(timeout=1)
             if learner.is_alive():
                 logger.warning(
                     'Learner process did not terminate, force terminating...')
@@ -294,5 +369,5 @@ class ImpalaDQN:
 
 
 if __name__ == '__main__':
-    impala_dqn = ImpalaDQN(state_dim=4, action_dim=2)
+    impala_dqn = ImpalaDQN(state_dim=4, action_dim=2, num_actors=1)
     impala_dqn.run()
