@@ -1,8 +1,11 @@
+from collections import OrderedDict
 from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn
+
+from rlzero.utils.pettingzoo_utils import wrap_state
 
 
 class DMCNet(nn.Module):
@@ -56,8 +59,8 @@ class DMCNet(nn.Module):
             torch.Tensor: A batch of scalar values (predictions) for each state-action pair.
         """
         # Flatten the observations and actions (if multi-dimensional)
-        obs = torch.flatten(obs,
-                            1)  # Flatten starting from the second dimension
+        # Flatten starting from the second dimension
+        obs = torch.flatten(obs, 1)
         # Flatten starting from the second dimension
         actions = torch.flatten(actions, 1)
 
@@ -230,9 +233,9 @@ class DMCModel:
     sharing memory or switching to evaluation mode.
 
     Args:
-        state_shape (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+        state_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
                                         observation (state) shape for each agent.
-        action_shape (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+        action_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
                                          action space shape for each agent.
         mlp_layers (List[int], optional): The structure of the multi-layer perceptron for each agent.
                                           Defaults to [512, 512, 512, 512, 512].
@@ -244,31 +247,31 @@ class DMCModel:
 
     def __init__(
         self,
-        state_shape: List[Tuple[int]],
-        action_shape: List[Tuple[int]],
+        state_shapes: List[Tuple[int]],
+        action_shapes: List[Tuple[int]],
         mlp_layers: List[int] = [512, 512, 512, 512, 512],
         exp_epsilon: float = 0.01,
-        device: str = '0',
+        device: Union[str, int] = '0',
     ) -> None:
         # Initialize agents for each player, each with their respective state and action shapes
-        self.agents: List[DMCAgent] = [
-            DMCAgent(
-                state_shape[player_id],
-                action_shape[player_id],
+        self.agents: OrderedDict[str, DMCAgent] = OrderedDict()
+        for player_id in range(len(state_shapes)):
+            self.agents[player_id] = DMCAgent(
+                state_shapes[player_id],
+                action_shapes[player_id],
                 mlp_layers,
                 exp_epsilon,
                 device,
-            ) for player_id in range(len(state_shape))
-        ]
+            )
 
     def share_memory(self) -> None:
         """Share memory for all agents to enable multiprocessing."""
-        for agent in self.agents:
+        for agent in self.agents.values():
             agent.share_memory()
 
     def eval(self) -> None:
         """Set all agents to evaluation mode."""
-        for agent in self.agents:
+        for agent in self.agents.values():
             agent.eval()
 
     def parameters(self, index: int):
@@ -280,7 +283,7 @@ class DMCModel:
         Returns:
             Iterator over agent parameters.
         """
-        return self.agents[index].parameters()
+        return list(self.agents.values())[index].parameters()
 
     def get_agent(self, index: int) -> DMCAgent:
         """Retrieve a specific agent by index.
@@ -291,7 +294,7 @@ class DMCModel:
         Returns:
             DMCAgent: The agent corresponding to the given index.
         """
-        return self.agents[index]
+        return list(self.agents.values())[index]
 
     def get_agents(self) -> List[DMCAgent]:
         """Retrieve the list of all agents.
@@ -299,4 +302,140 @@ class DMCModel:
         Returns:
             List[DMCAgent]: The list of all agents.
         """
-        return self.agents
+        return list(self.agents.values())
+
+
+class DMCAgentPettingZoo(DMCAgent):
+    """A wrapper for the DMCAgent class that adapts it to work with
+    PettingZoo's multi-agent framework.
+
+    This class ensures that the environment states are wrapped appropriately
+    before interacting with the DMCAgent methods.
+    """
+
+    def step(self, state: Dict[str, Any]) -> Any:
+        """Override the step function to wrap the input state.
+
+        Args:
+            state: The current state of the environment.
+
+        Returns:
+            The agent's action after processing the wrapped state.
+        """
+        return super().step(wrap_state(state))
+
+    def eval_step(self, state: Dict[str, Any]) -> Any:
+        """Override the eval_step function to wrap the input state for
+        evaluation.
+
+        Args:
+            state: The current state of the environment.
+
+        Returns:
+            The evaluated action of the agent.
+        """
+        return super().eval_step(wrap_state(state))
+
+    def feed(self, ts: Tuple[Any, Any, float, Any, bool]) -> None:
+        """Override the feed function to wrap the states in the transition
+        tuple (ts).
+
+        Args:
+            ts: A tuple containing (state, action, reward, next_state, done) information.
+        """
+        state, action, reward, next_state, done = ts
+        state = wrap_state(state)
+        next_state = wrap_state(next_state)
+        wrapped_ts = (state, action, reward, next_state, done)
+        super().feed(wrapped_ts)
+
+
+class DMCModelPettingZoo(DMCModel):
+    """A model for handling multiple agents in a PettingZoo environment.
+
+    This class maintains a dictionary of DMCAgentPettingZoo instances, one for
+    each agent in the environment.
+
+    Args:
+        state_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+                                        observation (state) shape for each agent.
+        action_shapes (List[Tuple[int]]): A list of shapes, where each shape corresponds to the
+                                         action space shape for each agent.
+        mlp_layers (List[int], optional): The structure of the multi-layer perceptron for each agent.
+                                          Defaults to [512, 512, 512, 512, 512].
+        exp_epsilon (float, optional): Exploration rate for epsilon-greedy action selection.
+                                       Defaults to 0.01.
+        device (int or str, optional): The device to run the model on, either a GPU index (int) or
+                                       "cpu". Defaults to 0 (i.e., 'cuda:0').
+    """
+
+    def __init__(
+        self,
+        state_shapes: List[Tuple[int]],
+        action_shapes: List[Tuple[int]],
+        mlp_layers: List[int] = [512, 512, 512, 512, 512],
+        exp_epsilon: float = 0.01,
+        device: str = '0',
+    ) -> None:
+        """Initializes the DMCModelPettingZoo with multiple agents based on the
+        environment.
+
+        Args:
+            env: The PettingZoo environment instance.
+            mlp_layers: The layers for the multi-layer perceptron (MLP) in the agent model.
+            exp_epsilon: The exploration epsilon value for the agents.
+            device: The device to be used by the agents (e.g., "0" for GPU, or "cpu").
+        """
+        super().__init__(state_shapes, action_shapes, mlp_layers, exp_epsilon,
+                         device)
+        # Initialize agents for each player, each with their respective state and action shapes
+        self.agents: OrderedDict[str, DMCAgentPettingZoo] = OrderedDict()
+        for player_id in range(len(state_shapes)):
+            agent = DMCAgentPettingZoo(
+                state_shapes[player_id],
+                action_shapes[player_id],
+                mlp_layers,
+                exp_epsilon,
+                device,
+            )
+            self.agents[player_id] = agent
+
+    def share_memory(self) -> None:
+        """Share memory between agents (for multiprocessing)."""
+        for agent in self.agents.values():
+            agent.share_memory()
+
+    def eval(self) -> None:
+        """Set all agents to evaluation mode (disables exploration)."""
+        for agent in self.agents.values():
+            agent.eval()
+
+    def parameters(self, index: int) -> Any:
+        """Get the parameters of the agent at the specified index.
+
+        Args:
+            index: The index of the agent in the OrderedDict.
+
+        Returns:
+            The parameters of the specified agent.
+        """
+        return list(self.agents.values())[index].parameters()
+
+    def get_agent(self, index: int) -> DMCAgentPettingZoo:
+        """Retrieve a specific agent by index.
+
+        Args:
+            index: The index of the agent.
+
+        Returns:
+            The DMCAgentPettingZoo instance corresponding to the specified index.
+        """
+        return list(self.agents.values())[index]
+
+    def get_agents(self) -> List[DMCAgentPettingZoo]:
+        """Retrieve a list of all agents in the model.
+
+        Returns:
+            A list of all DMCAgentPettingZoo instances.
+        """
+        return list(self.agents.values())

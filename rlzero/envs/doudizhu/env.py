@@ -42,7 +42,7 @@ class DouDiZhuEnv:
         """Objective is wp/adp/logadp.
 
         It indicates whether considers bomb in reward calculation. Here, we use
-        dummy agents. This is because, in the orignial game, the players are
+        dummy agents. This is because, in the original game, the players are
         `in` the game. Here, we want to isolate players and environments to
         have a more gym style interface. To achieve this, we use dummy players
         to play. For each move, we tell the corresponding dummy player which
@@ -90,7 +90,7 @@ class DouDiZhuEnv:
 
     def step(self, action):
         """Step function takes as input the action, which is a list of
-        integers, and output the next obervation, reward, and a Boolean
+        integers, and output the next observation, reward, and a Boolean
         variable indicating whether the current game is finished.
 
         It also returns an empty dictionary that is reserved to pass useful
@@ -136,10 +136,10 @@ class DouDiZhuEnv:
     @property
     def _game_infoset(self):
         """Here, inforset is defined as all the information in the current
-        situation, incuding the hand cards of all the players, all the
+        situation, including the hand cards of all the players, all the
         historical moves, etc.
 
-        That is, it contains perferfect infomation. Later, we will use
+        That is, it contains perferfect information. Later, we will use
         functions to extract the observable information from the views of the
         three players.
         """
@@ -214,7 +214,7 @@ def get_obs(infoset):
 
     `legal_actions` is the legal moves
 
-    `x_no_action`: the features (exluding the hitorical moves and
+    `x_no_action`: the features (excluding the hitorical moves and
     the action features). It does not have the batch dim.
 
     `z`: same as z_batch but not a batch.

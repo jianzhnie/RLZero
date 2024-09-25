@@ -322,7 +322,7 @@ class MCTSNode(SearchNode):
             It repeatedly selects an action based on the rollout policy and simulates the action until the game ends.
             The method then returns the reward of the game's final state.
         Returns:
-            -reward (:obj:`int`): reward = ±1 when player 1 wins/loses the game, reward = 0 when it is a tie, reward = None when current node is not a teminal node.
+            -reward (:obj:`int`): reward = ±1 when player 1 wins/loses the game, reward = 0 when it is a tie, reward = None when current node is not a terminal node.
         """
         current_rollout_env = copy.deepcopy(game_env)
         while not current_rollout_env.is_terminal():
@@ -376,7 +376,7 @@ class MCTSNode(SearchNode):
         # The get_done_reward() returns a tuple (done, reward).
         # reward = ±1 when player 1 wins/loses the game.
         # reward = 0 when it is a tie.
-        # reward = None when current node is not a teminal node.
+        # reward = None when current node is not a terminal node.
         # done is the bool flag representing whether the game is over.
         return self.env.get_done_reward()[0]
 

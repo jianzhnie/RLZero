@@ -8,17 +8,17 @@ class RandomAgent(object):
     """
 
     def __init__(self, num_actions):
-        """Initilize the random agent.
+        """Initialize the random agent.
 
         Args:
-            num_actions (int): The size of the ouput action space
+            num_actions (int): The size of the output action space
         """
         self.use_raw = False
         self.num_actions = num_actions
 
     @staticmethod
     def step(state):
-        """Predict the action given the curent state in gerenerating training
+        """Predict the action given the current state in gerenerating training
         data.
 
         Args:
