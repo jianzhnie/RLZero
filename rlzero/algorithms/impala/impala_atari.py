@@ -47,6 +47,7 @@ class ImpalaTrainer:
         Args:
             args (RLArguments): Configuration arguments for the trainer.
         """
+        self.args: RLArguments = args
         self.setup_device()
         self.env: gym.Env = create_env(args.env_id)
         self.actor_model: AtariNet = AtariNet(
