@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class RLArguments:
-    """Settings for the DouZero PyTorch DouDizhu AI."""
+    """Settings for the RLZero PyTorch AI."""
 
     # General settings
     project: str = field(default='rlzero',
@@ -20,14 +20,15 @@ class RLArguments:
     )
     env_id: str = field(
         default='CartPole-v1',
-        metadata={'help': 'Environment ID (default: CartPole-v1)'})
+        metadata={'help': 'Environment ID (default: CartPole-v1)'},
+    )
 
     # MultiProcess settings
     num_actors: int = field(
         default=1,
         metadata={'help': 'The number of actors for each simulation device'})
-    num_threads: int = field(default=4,
-                             metadata={'help': 'Number learner threads'})
+    num_learners: int = field(default=4,
+                              metadata={'help': 'Number learner threads'})
 
     # Device settings
     use_cuda: bool = field(default=True,
@@ -48,6 +49,9 @@ class RLArguments:
     )
 
     # Hyperparameters
+    use_lstm: bool = field(default=True,
+                           metadata={'help': 'Use LSTM in agent model'})
+
     total_steps: int = field(
         default=100_000_000_000,
         metadata={'help': 'Total environment steps to train for'},
@@ -71,17 +75,17 @@ class RLArguments:
     momentum: float = field(default=0.0, metadata={'help': 'RMSProp momentum'})
     epsilon: float = field(default=1e-5, metadata={'help': 'RMSProp epsilon'})
 
-    # loss settings
+    # Loss settings
     entropy_cost: float = field(default=0.0006,
-                                metadata={'Entropy cost/multiplier.'})
+                                metadata={'help': 'Entropy cost/multiplier.'})
     baseline_cost: float = field(
         default=0.5, metadata={'help': 'Baseline cost/multiplier.'})
     discounting: float = field(default=0.99,
-                               metadata={'help': 'Discounting factor '})
+                               metadata={'help': 'Discounting factor'})
     reward_clipping: str = field(default='abs_one',
                                  metadata={'help': 'Reward clipping'})
 
-    # model save settings
+    # Model save settings
     load_model: bool = field(default=False,
                              metadata={'help': 'Load an existing model'})
     disable_checkpoint: bool = field(
@@ -105,24 +109,26 @@ def parse_args() -> RLArguments:
     Returns:
         RLArguments: Populated RLArguments dataclass instance with command-line arguments.
     """
-    parser = argparse.ArgumentParser(
-        description='DouZero: PyTorch DouDizhu AI')
+    parser = argparse.ArgumentParser(description='RLZero: PyTorch AI')
 
     # Automatically populate arguments based on the RLArguments dataclass
     for field_name, field_info in RLArguments.__dataclass_fields__.items():
         help_msg = field_info.metadata.get('help', '')
-        if 'choices' in field_info.metadata:
+        field_type = type(field_info.default)
+        choices = field_info.metadata.get('choices', None)
+
+        if choices:
             parser.add_argument(
                 f'--{field_name}',
-                type=type(field_info.default),
+                type=field_type,
                 default=field_info.default,
-                choices=field_info.metadata['choices'],
+                choices=choices,
                 help=help_msg,
             )
         else:
             parser.add_argument(
                 f'--{field_name}',
-                type=type(field_info.default),
+                type=field_type,
                 default=field_info.default,
                 help=help_msg,
             )
