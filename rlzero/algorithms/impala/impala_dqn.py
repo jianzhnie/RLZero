@@ -140,21 +140,23 @@ class ImpalaDQN:
         device (str): Device to use for training (e.g., 'cpu' or 'cuda').
     """
 
-    def __init__(self,
-                 state_dim: int,
-                 action_dim: int,
-                 num_actors: int = 4,
-                 max_timesteps: int = 10000,
-                 buffer_size: int = 10000,
-                 eps_greedy: float = 0.1,
-                 eval_interval: int = 1000,
-                 train_log_interval: int = 1000,
-                 target_update_frequency: int = 2000,
-                 double_dqn: bool = True,
-                 gamma: float = 0.99,
-                 batch_size: int = 32,
-                 learning_rate: float = 0.001,
-                 device: str = 'cpu') -> None:
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        num_actors: int = 4,
+        max_timesteps: int = 50000,
+        buffer_size: int = 10000,
+        eps_greedy: float = 0.1,
+        eval_interval: int = 1000,
+        train_log_interval: int = 1000,
+        target_update_frequency: int = 2000,
+        double_dqn: bool = True,
+        gamma: float = 0.99,
+        batch_size: int = 32,
+        learning_rate: float = 0.001,
+        device: str = 'cpu',
+    ) -> None:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.num_actors = num_actors
@@ -173,7 +175,8 @@ class ImpalaDQN:
         self.q_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.q_network.parameters(),
+                                    lr=learning_rate)
 
         self.data_queue = mp.Queue(maxsize=100)
         self.replay_buffer = ReplayBuffer(buffer_size)
@@ -251,8 +254,7 @@ class ImpalaDQN:
                 if buffer:
                     data_queue.put(buffer)
 
-                global_step = ceil_to_nearest_hundred(
-                            self.global_step)
+                global_step = ceil_to_nearest_hundred(self.global_step)
                 if actor_id == 0 and global_step % self.train_log_interval == 0:
                     logger.info(
                         'Actor {}: , episode step: {}, episode reward: {}'.
@@ -314,8 +316,7 @@ class ImpalaDQN:
         try:
             while self.global_step < self.max_timesteps and not stop_event.is_set(
             ):
-                global_step = ceil_to_nearest_hundred(
-                            self.global_step) 
+
                 try:
                     # Non-blocking with timeout
                     data = data_queue.get(timeout=0.01)
@@ -327,6 +328,8 @@ class ImpalaDQN:
                 for experience in data:
                     self.replay_buffer.add(experience)
 
+                global_step = ceil_to_nearest_hundred(self.global_step)
+
                 if len(self.replay_buffer) >= self.batch_size:
                     batch = self.replay_buffer.sample(self.batch_size)
                     learn_result = self.learn(batch)
@@ -334,7 +337,7 @@ class ImpalaDQN:
                     if global_step % self.target_update_frequency == 0:
                         self.target_network.load_state_dict(
                             self.q_network.state_dict())
-                    
+
                     if global_step % self.train_log_interval == 0:
                         logger.info(
                             f'Step {global_step}: Train results: {learn_result}'
