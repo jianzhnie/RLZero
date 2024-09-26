@@ -60,6 +60,6 @@ class Timings:
 
         result = prefix
         for k in sorted(means, key=means.get, reverse=True):
-            result += f'\n    {k}: {1000 * means[k]}ms +- {1000 * stds[k]}ms  {100 * means[k] / total}'
+            result += f'{k}: {1000 * means[k]}ms +- {1000 * stds[k]}ms  {100 * means[k] / total}'
         result += f'\nTotal: {1000 * total}ms'
         return result
