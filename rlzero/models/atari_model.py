@@ -24,7 +24,7 @@ class AtariNet(nn.Module):
         """
         super(AtariNet, self).__init__()
         self.observation_shape = observation_shape
-        self.num_actions = num_actions
+        self.num_actions = int(num_actions)
 
         # Feature extraction layers
         self.conv1 = nn.Conv2d(

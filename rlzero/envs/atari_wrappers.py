@@ -4,7 +4,6 @@ from typing import Any, Dict, Tuple
 import cv2
 import gymnasium as gym
 import numpy as np
-from gymnasium import spaces
 
 cv2.ocl.setUseOpenCL(False)
 
@@ -27,7 +26,7 @@ class NoopResetEnv(gym.Wrapper):
     def reset(self, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Perform no-op action for a random number of steps in [1,
         noop_max]."""
-        self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
         noops = self.override_num_noops or self.unwrapped.np_random.randint(
             1, self.noop_max + 1)
         assert noops > 0, 'Number of no-ops must be greater than 0.'
@@ -39,7 +38,6 @@ class NoopResetEnv(gym.Wrapper):
             done = terminal or truncated
             if done:
                 obs, info = self.env.reset(**kwargs)
-
         return obs, info
 
     def step(self,
@@ -60,7 +58,7 @@ class FireResetEnv(gym.Wrapper):
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
     def reset(self, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
-        self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
         obs, rewards, terminal, truncated, info = self.env.step(1)
         done = terminal or truncated
         if done:
@@ -98,6 +96,7 @@ class EpisodicLifeEnv(gym.Wrapper):
         # Make loss of life terminal
         if lives < self.lives and lives > 0:
             done = True
+            terminal = True
         self.lives = lives
         return obs, rewards, terminal, truncated, info
 
@@ -120,27 +119,23 @@ class MaxAndSkipEnv(gym.Wrapper):
 
     def __init__(self, env: gym.Env, skip: int = 4) -> None:
         super().__init__(env)
-        self._obs_buffer = np.zeros((2, ) + env.observation_space.shape,
-                                    dtype=np.uint8)
         self._skip = skip
 
     def step(
             self, action: Any
     ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        obs_list = []
         total_reward = 0.0
         done = False
         for i in range(self._skip):
             obs, rewards, terminal, truncated, info = self.env.step(action)
             done = terminal or truncated
-            if i == self._skip - 2:
-                self._obs_buffer[0] = obs
-            if i == self._skip - 1:
-                self._obs_buffer[1] = obs
+            obs_list.append(obs)
             total_reward += rewards
             if done:
                 break
 
-        max_frame = self._obs_buffer.max(axis=0)
+        max_frame = np.max(obs_list[-2:], axis=0)
         return max_frame, total_reward, terminal, truncated, info
 
     def reset(self, **kwargs) -> Tuple[np.ndarray, Dict[str, Any]]:
@@ -170,44 +165,24 @@ class WarpFrame(gym.ObservationWrapper):
         width: int = 84,
         height: int = 84,
         grayscale: bool = True,
-        dict_space_key: str = None,
     ) -> None:
         super().__init__(env)
         self._width = width
         self._height = height
         self._grayscale = grayscale
-        self._key = dict_space_key
-
-        num_colors = 1 if self._grayscale else 3
-        new_space = gym.spaces.Box(
-            low=0,
-            high=255,
-            shape=(self._height, self._width, num_colors),
-            dtype=np.uint8,
+        self.observation_space = gym.spaces.Box(
+            low=np.min(env.observation_space.low),
+            high=np.max(env.observation_space.high),
+            shape=(self._width, self._height),
+            dtype=env.observation_space.dtype,
         )
 
-        if self._key is None:
-            original_space = self.observation_space
-            self.observation_space = new_space
-        else:
-            original_space = self.observation_space.spaces[self._key]
-            self.observation_space.spaces[self._key] = new_space
-
-        assert original_space.dtype == np.uint8 and len(
-            original_space.shape) == 3
-
-    def observation(self, obs: np.ndarray) -> np.ndarray:
-        frame = obs if self._key is None else obs[self._key]
+    def observation(self, frame: np.ndarray) -> np.ndarray:
         if self._grayscale:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         frame = cv2.resize(frame, (self._width, self._height),
                            interpolation=cv2.INTER_AREA)
-        if self._grayscale:
-            frame = np.expand_dims(frame, -1)
-        if self._key is None:
-            return frame
-        obs[self._key] = frame
-        return obs
+        return frame
 
 
 class FrameStack(gym.Wrapper):
@@ -220,11 +195,11 @@ class FrameStack(gym.Wrapper):
         super().__init__(env)
         self.k = k
         self.frames = deque([], maxlen=k)
-        shp = env.observation_space.shape
-        self.observation_space = spaces.Box(
-            low=0,
-            high=255,
-            shape=(shp[:-1] + (shp[-1] * k, )),
+        shape = (k, *env.observation_space.shape)
+        self.observation_space = gym.spaces.Box(
+            low=np.min(env.observation_space.low),
+            high=np.max(env.observation_space.high),
+            shape=shape,
             dtype=env.observation_space.dtype,
         )
 

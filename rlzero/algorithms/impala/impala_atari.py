@@ -1,13 +1,15 @@
 import logging
+import os
 import threading
 from typing import Any, Dict, List, Tuple
 
 import gymnasium as gym
-import numpy as np
 import torch
 from torch import multiprocessing as mp
 from torch import nn
 
+from rlzero.algorithms.impala.atari_wrappers import \
+    wrap_deepmind as wrap_deepmind2
 from rlzero.algorithms.impala.environment import TorchEnvWrapper
 from rlzero.algorithms.impala.utils import (compute_baseline_loss,
                                             compute_entropy_loss,
@@ -22,6 +24,20 @@ from rlzero.utils.profile import Timings
 logger = get_logger('impala_atari')
 
 
+def create_env2(env_id: str) -> gym.Env:
+    """Create and wrap an Atari environment.
+
+    Args:
+        env_id (str): The ID of the Atari environment.
+
+    Returns:
+        gym.Env: The wrapped Atari environment.
+    """
+    env = wrap_deepmind2(env_id=env_id, frame_stack=4, clip_rewards=False)
+    env = wrap_pytorch(env)
+    return env
+
+
 def create_env(env_id: str) -> gym.Env:
     """Create and wrap an Atari environment.
 
@@ -32,7 +48,7 @@ def create_env(env_id: str) -> gym.Env:
         gym.Env: The wrapped Atari environment.
     """
     env = make_atari(env_id)
-    env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, scale=False)
+    env = wrap_deepmind(env, frame_stack=True, clip_rewards=False)
     env = wrap_pytorch(env)
     return env
 
@@ -51,21 +67,21 @@ class ImpalaTrainer:
         self.setup_device()
         self.env: gym.Env = create_env(args.env_id)
         self.actor_model: AtariNet = AtariNet(
-            self.env.observation_space,
-            self.env.action_space.n,
+            self.env.observation_space.shape,
+            self.env.action_space.n.item(),
             use_lstm=args.use_lstm,
         )
         self.actor_model.share_memory()
         self.learner_model: AtariNet = AtariNet(
-            self.env.observation_space,
-            self.env.action_space.n,
+            self.env.observation_space.shape,
+            self.env.action_space.n.item(),
             use_lstm=args.use_lstm,
         )
         self.learner_model.share_memory()
         self.optimizer = self.setup_optimizer()
         self.buffers = self.create_buffers(
             obs_shape=self.env.observation_space.shape,
-            num_actions=self.env.action_space.n,
+            num_actions=self.env.action_space.n.item(),
         )
         self.agent_rnn_state_buffers = self.create_rnn_state_buffers()
 
@@ -75,6 +91,8 @@ class ImpalaTrainer:
             raise ValueError('num_buffers should be larger than num_actors')
         if args.num_buffers < args.batch_size:
             raise ValueError('num_buffers should be larger than batch_size')
+        args.checkpoint_path = os.path.join('work_dir', args.project,
+                                            args.algo_name)
         self.args: RLArguments = args
         self.global_step = 0
 
@@ -110,7 +128,7 @@ class ImpalaTrainer:
         """
         agent_rann_state_buffers = []
         for _ in range(self.args.num_buffers):
-            state = self.actor_model.initial_state(batch_size=1)
+            state = self.actor_model.initial_hidden_state(batch_size=1)
             for t in state:
                 t.share_memory_()
             agent_rann_state_buffers.append(state)
@@ -129,16 +147,16 @@ class ImpalaTrainer:
         """
         seq_len = self.args.rollout_length
         specs = dict(
-            obs=dict(shape=(seq_len + 1, *obs_shape), dtype=torch.uint8),
-            reward=dict(shape=(seq_len + 1, ), dtype=np.float32),
-            done=dict(shape=(seq_len + 1, ), dtype=np.float32),
-            last_action=dict(shape=(seq_len + 1, ), dtype=torch.int64),
-            action=dict(shape=(seq_len + 1, ), dtype=np.int64),
-            episode_return=dict(shape=(seq_len + 1, ), dtype=torch.float32),
-            episode_step=dict(shape=(seq_len + 1, ), dtype=torch.int32),
-            policy_logits=dict(shape=(seq_len + 1, num_actions),
+            obs=dict(size=(seq_len + 1, *obs_shape), dtype=torch.uint8),
+            reward=dict(size=(seq_len + 1, ), dtype=torch.float32),
+            done=dict(size=(seq_len + 1, ), dtype=torch.bool),
+            last_action=dict(size=(seq_len + 1, ), dtype=torch.int64),
+            action=dict(size=(seq_len + 1, ), dtype=torch.int64),
+            episode_return=dict(size=(seq_len + 1, ), dtype=torch.float32),
+            episode_step=dict(size=(seq_len + 1, ), dtype=torch.int32),
+            policy_logits=dict(size=(seq_len + 1, num_actions),
                                dtype=torch.float32),
-            baseline=dict(shape=(seq_len + 1, ), dtype=torch.float32),
+            baseline=dict(size=(seq_len + 1, ), dtype=torch.float32),
         )
         buffers = {key: [] for key in specs}
         for _ in range(self.args.num_buffers):
@@ -415,7 +433,7 @@ class ImpalaTrainer:
             free_queue.put(m)
 
         threads = []
-        for thread_id in range(self.args.num_learner_threads):
+        for thread_id in range(self.args.num_learners):
             thread = threading.Thread(
                 target=self.learn_process,
                 name=f'learn-thread-{thread_id}',
@@ -433,7 +451,7 @@ class ImpalaTrainer:
 
         try:
             while self.global_step < self.args.total_steps:
-                self.save_checkpoint(self.args.checkpointpath)
+                self.save_checkpoint(self.args.checkpoint_path)
         except KeyboardInterrupt:
             return  # Try joining actors then quit.
         else:
@@ -446,7 +464,7 @@ class ImpalaTrainer:
             for actor in actor_processes:
                 actor.join(timeout=1)
 
-    def save_checkpoint(self, checkpointpath: str) -> None:
+    def save_checkpoint(self, checkpoint_path: str) -> None:
         """Save the current state of the model and optimizer.
 
         Args:
@@ -454,14 +472,14 @@ class ImpalaTrainer:
         """
         if self.args.disable_checkpoint:
             return
-        logging.info('Saving checkpoint to %s', checkpointpath)
+        logging.info('Saving checkpoint to %s', checkpoint_path)
         torch.save(
             {
                 'model_state_dict': self.actor_model.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'hparam': vars(self.args),
             },
-            checkpointpath,
+            checkpoint_path,
         )
 
 
