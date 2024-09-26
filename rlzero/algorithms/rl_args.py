@@ -21,19 +21,24 @@ class RLArguments:
     env_id: str = field(
         default='CartPole-v1',
         metadata={'help': 'Environment ID (default: CartPole-v1)'})
-    # Training settings
-    use_cuda: bool = field(default=True,
-                           metadata={'help': 'Use CUDA (default: True)'})
-    actor_device_cpu: bool = field(
-        default=True, metadata={'help': 'Use CPU as actor device'})
-    gpu_devices: str = field(
-        default='0', metadata={'help': 'Which GPUs to be used for training'})
-    num_actor_devices: int = field(
-        default=1,
-        metadata={'help': 'The number of devices used for simulation'})
+
+    # MultiProcess settings
     num_actors: int = field(
         default=1,
         metadata={'help': 'The number of actors for each simulation device'})
+    num_threads: int = field(default=4,
+                             metadata={'help': 'Number learner threads'})
+
+    # Device settings
+    use_cuda: bool = field(default=True,
+                           metadata={'help': 'Use CUDA (default: True)'})
+    actor_device: str = field(
+        default='0',
+        metadata={
+            'help':
+            'The index of the GPU used for training models. `cpu` means using CPU'
+        },
+    )
     training_device: str = field(
         default='0',
         metadata={
@@ -41,20 +46,7 @@ class RLArguments:
             'The index of the GPU used for training models. `cpu` means using CPU'
         },
     )
-    load_model: bool = field(default=False,
-                             metadata={'help': 'Load an existing model'})
-    disable_checkpoint: bool = field(
-        default=False, metadata={'help': 'Disable saving checkpoint'})
-    savedir: str = field(
-        default='douzero_checkpoints',
-        metadata={'help': 'Root dir where experiment data will be saved'},
-    )
-    save_interval: int = field(
-        default=30,
-        metadata={
-            'help': 'Time interval (in minutes) at which to save the model'
-        },
-    )
+
     # Hyperparameters
     total_steps: int = field(
         default=100_000_000_000,
@@ -68,8 +60,6 @@ class RLArguments:
         default=100, metadata={'help': 'The rollout length (time dimension)'})
     num_buffers: int = field(
         default=50, metadata={'help': 'Number of shared-memory buffers'})
-    num_threads: int = field(default=4,
-                             metadata={'help': 'Number learner threads'})
     max_grad_norm: float = field(default=40.0,
                                  metadata={'help': 'Max norm of gradients'})
 
@@ -80,6 +70,32 @@ class RLArguments:
                          metadata={'help': 'RMSProp smoothing constant'})
     momentum: float = field(default=0.0, metadata={'help': 'RMSProp momentum'})
     epsilon: float = field(default=1e-5, metadata={'help': 'RMSProp epsilon'})
+
+    # loss settings
+    entropy_cost: float = field(default=0.0006,
+                                metadata={'Entropy cost/multiplier.'})
+    baseline_cost: float = field(
+        default=0.5, metadata={'help': 'Baseline cost/multiplier.'})
+    discounting: float = field(default=0.99,
+                               metadata={'help': 'Discounting factor '})
+    reward_clipping: str = field(default='abs_one',
+                                 metadata={'help': 'Reward clipping'})
+
+    # model save settings
+    load_model: bool = field(default=False,
+                             metadata={'help': 'Load an existing model'})
+    disable_checkpoint: bool = field(
+        default=False, metadata={'help': 'Disable saving checkpoint'})
+    output_dir: str = field(
+        default='douzero_checkpoints',
+        metadata={'help': 'Root dir where experiment data will be saved'},
+    )
+    save_interval: int = field(
+        default=30,
+        metadata={
+            'help': 'Time interval (in minutes) at which to save the model'
+        },
+    )
 
 
 def parse_args() -> RLArguments:
