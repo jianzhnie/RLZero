@@ -36,14 +36,14 @@ class TorchEnvWrapper(object):
             done flag, episode return, and step count.
         """
         obs, _ = self.gym_env.reset()
+        reward = torch.zeros(1, 1)
         action = torch.zeros(1, 1, dtype=torch.int64)
         done = torch.ones(1, 1, dtype=torch.uint8)
-
         obs = _format_obs(obs)
         return dict(
             obs=obs,
+            reward=reward,
             action=action,
-            reward=torch.zeros(1, 1),
             done=done,
             episode_return=self.episode_return,
             episode_step=self.episode_step,
@@ -76,8 +76,8 @@ class TorchEnvWrapper(object):
 
         return dict(
             obs=obs,
-            action=action,
             reward=reward_tensor,
+            action=action,
             done=done_tensor,
             episode_return=self.episode_return,
             episode_step=self.episode_step,

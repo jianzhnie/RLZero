@@ -88,7 +88,7 @@ class AtariNet(nn.Module):
         Returns:
             Tuple[Dict[str, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]: Outputs and updated rnn state.
         """
-        x = inputs['frame']  # [T, B, C, H, W]
+        x = inputs['obs']  # [T, B, C, H, W]
         T, B, *_ = x.shape
         x = torch.flatten(x, 0, 1)  # Merge time and batch
         x = x.float() / 255.0  # Normalize input
@@ -101,7 +101,7 @@ class AtariNet(nn.Module):
         x = F.relu(self.fc(x))
 
         # Prepare input for LSTM or fully connected layers
-        one_hot_last_action = F.one_hot(inputs['last_action'].view(T * B),
+        one_hot_last_action = F.one_hot(inputs['action'].view(T * B),
                                         self.num_actions).float()
         clipped_reward = torch.clamp(inputs['reward'], -1, 1).view(T * B, 1)
         rnn_input = torch.cat([x, clipped_reward, one_hot_last_action], dim=-1)
