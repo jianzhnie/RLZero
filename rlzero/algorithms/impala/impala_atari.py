@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import Dict, List
+from typing import Any, Dict, List, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -22,7 +22,15 @@ from rlzero.utils.profile import Timings
 logger = get_logger('impala_atari')
 
 
-def create_env(env_id: str):
+def create_env(env_id: str) -> gym.Env:
+    """Create and wrap an Atari environment.
+
+    Args:
+        env_id (str): The ID of the Atari environment.
+
+    Returns:
+        gym.Env: The wrapped Atari environment.
+    """
     env = make_atari(env_id)
     env = wrap_deepmind(env, clip_rewards=False, frame_stack=True, scale=False)
     env = wrap_pytorch(env)
@@ -30,8 +38,16 @@ def create_env(env_id: str):
 
 
 class ImpalaTrainer:
+    """Trainer class for IMPALA (Importance Weighted Actor-Learner
+    Architecture) algorithm."""
 
     def __init__(self, args: RLArguments) -> None:
+        """Initialize the IMPALA trainer.
+
+        Args:
+            args (RLArguments): Configuration arguments for the trainer.
+        """
+        self.args = args
         self.setup_device()
         self.env: gym.Env = create_env(args.env_id)
         self.actor_model: AtariNet = AtariNet(
@@ -59,10 +75,11 @@ class ImpalaTrainer:
             raise ValueError('num_buffers should be larger than num_actors')
         if args.num_buffers < args.batch_size:
             raise ValueError('num_buffers should be larger than batch_size')
-        self.args: RLArguments = args
+
         self.global_step = 0
 
     def setup_device(self) -> None:
+        """Set up the device (CPU or GPU) based on the arguments."""
         if self.args.use_cuda and torch.cuda.is_available():
             logging.info('Using CUDA.')
             self.args.device = torch.device('cuda')
@@ -70,7 +87,12 @@ class ImpalaTrainer:
             logging.info('Not using CUDA.')
             self.args.device = torch.device('cpu')
 
-    def setup_optimizer(self):
+    def setup_optimizer(self) -> torch.optim.Optimizer:
+        """Set up the optimizer for the learner model.
+
+        Returns:
+            torch.optim.Optimizer: The optimizer.
+        """
         optimizer = torch.optim.RMSprop(
             self.learner_model.parameters(),
             lr=self.args.learning_rate,
@@ -78,11 +100,14 @@ class ImpalaTrainer:
             eps=self.args.epsilon,
             alpha=self.args.alpha,
         )
-
         return optimizer
 
-    def create_rnn_state_buffers(self):
-        # Add initial RNN state.
+    def create_rnn_state_buffers(self) -> List[Tuple[torch.Tensor, ...]]:
+        """Create initial RNN state buffers.
+
+        Returns:
+            List[Tuple[torch.Tensor, ...]]: List of initial RNN states.
+        """
         initial_agent_state_buffers = []
         for _ in range(self.args.num_buffers):
             state = self.actor_model.initial_state(batch_size=1)
@@ -91,22 +116,29 @@ class ImpalaTrainer:
             initial_agent_state_buffers.append(state)
         return initial_agent_state_buffers
 
-    def create_buffers(self, obs_shape, num_actions) -> dict[str, list]:
+    def create_buffers(self, obs_shape: Tuple[int, ...],
+                       num_actions: int) -> Dict[str, List[torch.Tensor]]:
+        """Create buffers for storing rollout data.
+
+        Args:
+            obs_shape (Tuple[int, ...]): Shape of the observation space.
+            num_actions (int): Number of possible actions.
+
+        Returns:
+            Dict[str, List[torch.Tensor]]: Buffers for storing rollout data.
+        """
         seq_len = self.args.rollout_length
         specs = dict(
-            obs=dict(
-                shape=(seq_len + 1, *obs_shape),
-                dtype=torch.uint8,
-            ),
+            obs=dict(shape=(seq_len + 1, *obs_shape), dtype=torch.uint8),
             reward=dict(shape=(seq_len + 1, ), dtype=np.float32),
             done=dict(shape=(seq_len + 1, ), dtype=np.float32),
-            last_action=dict(size=(seq_len + 1, ), dtype=torch.int64),
+            last_action=dict(shape=(seq_len + 1, ), dtype=torch.int64),
             action=dict(shape=(seq_len + 1, ), dtype=np.int64),
-            episode_return=dict(size=(seq_len + 1, ), dtype=torch.float32),
-            episode_step=dict(size=(seq_len + 1, ), dtype=torch.int32),
-            policy_logits=dict(size=(seq_len + 1, num_actions),
+            episode_return=dict(shape=(seq_len + 1, ), dtype=torch.float32),
+            episode_step=dict(shape=(seq_len + 1, ), dtype=torch.int32),
+            policy_logits=dict(shape=(seq_len + 1, num_actions),
                                dtype=torch.float32),
-            baseline=dict(size=(seq_len + 1, ), dtype=torch.float32),
+            baseline=dict(shape=(seq_len + 1, ), dtype=torch.float32),
         )
         buffers = {key: [] for key in specs}
         for _ in range(self.args.num_buffers):
@@ -122,8 +154,18 @@ class ImpalaTrainer:
         full_queue: mp.SimpleQueue,
         actor_model: torch.nn.Module,
         buffers: Dict[str, List[torch.Tensor]],
-        initial_agent_state_buffers: Dict[str, List[torch.Tensor]],
+        initial_agent_state_buffers: List[Tuple[torch.Tensor, ...]],
     ) -> None:
+        """Actor process that collects rollout data.
+
+        Args:
+            actor_index (int): Index of the actor.
+            free_queue (mp.SimpleQueue): Queue for free buffer indices.
+            full_queue (mp.SimpleQueue): Queue for full buffer indices.
+            actor_model (torch.nn.Module): The actor model.
+            buffers (Dict[str, List[torch.Tensor]]): Buffers for storing rollout data.
+            initial_agent_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
+        """
         try:
             logging.info('Actor %i started.', actor_index)
             timings = Timings()  # Keep track of how fast things are.
@@ -173,14 +215,27 @@ class ImpalaTrainer:
             raise e
 
     def get_batch(
-            self,
-            free_queue: mp.SimpleQueue,
-            full_queue: mp.SimpleQueue,
-            buffers,
-            initial_agent_state_buffers,
-            timings,
-            lock=threading.Lock(),
-    ) -> dict[str, torch.Tensor]:
+        self,
+        free_queue: mp.SimpleQueue,
+        full_queue: mp.SimpleQueue,
+        buffers: Dict[str, List[torch.Tensor]],
+        initial_agent_state_buffers: List[Tuple[torch.Tensor, ...]],
+        timings: Timings,
+        lock: threading.Lock = threading.Lock(),
+    ) -> Tuple[Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]:
+        """Get a batch of rollout data for training.
+
+        Args:
+            free_queue (mp.SimpleQueue): Queue for free buffer indices.
+            full_queue (mp.SimpleQueue): Queue for full buffer indices.
+            buffers (Dict[str, List[torch.Tensor]]): Buffers for storing rollout data.
+            initial_agent_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
+            timings (Timings): Timings object to track performance.
+            lock (threading.Lock): Lock for thread safety.
+
+        Returns:
+            Tuple[Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]: Batch of rollout data and initial RNN states.
+        """
         with lock:
             timings.time('lock')
             indices = [full_queue.get() for _ in range(self.args.batch_size)]
@@ -210,9 +265,19 @@ class ImpalaTrainer:
     def learn(
             self,
             batch: Dict[str, torch.Tensor],
-            initial_agent_state,
-            lock=threading.Lock(),
-    ):  # -> dict[str, Any]:
+            initial_agent_state: Tuple[torch.Tensor, ...],
+            lock: threading.Lock = threading.Lock(),
+    ) -> Dict[str, Any]:
+        """Perform a learning step using the batch of rollout data.
+
+        Args:
+            batch (Dict[str, torch.Tensor]): Batch of rollout data.
+            initial_agent_state (Tuple[torch.Tensor, ...]): Initial RNN states.
+            lock (threading.Lock): Lock for thread safety.
+
+        Returns:
+            Dict[str, Any]: Statistics from the learning step.
+        """
         with lock:
             learner_outputs, unused_state = self.learner_model(
                 batch, initial_agent_state)
@@ -269,23 +334,32 @@ class ImpalaTrainer:
 
             self.optimizer.zero_grad()
             total_loss.backward()
-            nn.utils.clip_grad_norm_(self.learn_model.parameters(),
+            nn.utils.clip_grad_norm_(self.learner_model.parameters(),
                                      self.args.grad_norm_clipping)
             self.optimizer.step()
 
-            self.actor_model.load_state_dict(self.learn_model.state_dict())
+            self.actor_model.load_state_dict(self.learner_model.state_dict())
             return stats
 
     def learn_process(
             self,
-            threading_id,
-            free_queue,
-            full_queue,
-            buffers,
-            initial_agent_state_buffers,
-            lock=threading.Lock(),
-    ):
-        """Thread target for the learning process."""
+            threading_id: int,
+            free_queue: mp.SimpleQueue,
+            full_queue: mp.SimpleQueue,
+            buffers: Dict[str, List[torch.Tensor]],
+            initial_agent_state_buffers: List[Tuple[torch.Tensor, ...]],
+            lock: threading.Lock = threading.Lock(),
+    ) -> None:
+        """Thread target for the learning process.
+
+        Args:
+            threading_id (int): ID of the thread.
+            free_queue (mp.SimpleQueue): Queue for free buffer indices.
+            full_queue (mp.SimpleQueue): Queue for full buffer indices.
+            buffers (Dict[str, List[torch.Tensor]]): Buffers for storing rollout data.
+            initial_agent_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
+            lock (threading.Lock): Lock for thread safety.
+        """
         timings = Timings()
         while self.global_step < self.args.total_steps:
             timings.reset()
@@ -296,7 +370,7 @@ class ImpalaTrainer:
                 initial_agent_state_buffers,
                 timings,
             )
-            stats = self.learn(batch, agent_state, agent_state)
+            stats = self.learn(batch, agent_state, lock)
             timings.time('learn')
             with lock:
                 to_log = dict(step=self.global_step)
@@ -308,6 +382,7 @@ class ImpalaTrainer:
             logging.info('Batch and learn: %s', timings.summary())
 
     def train(self) -> None:
+        """Main training loop for the IMPALA algorithm."""
         self.stat_keys = [
             'total_loss',
             'mean_episode_return',
@@ -340,17 +415,17 @@ class ImpalaTrainer:
             free_queue.put(m)
 
         threads = []
-        for thread_id in range(self.num_learner_threads):
+        for thread_id in range(self.args.num_learner_threads):
             thread = threading.Thread(
                 target=self.learn_process,
-                name='learn-thread-%d' % thread_id,
+                name=f'learn-thread-{thread_id}',
                 args=(
                     thread_id,
                     free_queue,
                     full_queue,
                     self.buffers,
                     self.initial_agent_state_buffers,
-                    threading.Lock,
+                    threading.Lock(),
                 ),
             )
             thread.start()
@@ -361,7 +436,6 @@ class ImpalaTrainer:
                 self.save_checkpoint(self.args.checkpointpath)
         except KeyboardInterrupt:
             return  # Try joining actors then quit.
-
         else:
             for thread in threads:
                 thread.join()
@@ -372,7 +446,12 @@ class ImpalaTrainer:
             for actor in actor_processes:
                 actor.join(timeout=1)
 
-    def save_checkpoint(self, checkpointpath):
+    def save_checkpoint(self, checkpointpath: str) -> None:
+        """Save the current state of the model and optimizer.
+
+        Args:
+            checkpointpath (str): Path to save the checkpoint.
+        """
         if self.args.disable_checkpoint:
             return
         logging.info('Saving checkpoint to %s', checkpointpath)
