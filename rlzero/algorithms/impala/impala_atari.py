@@ -1,4 +1,6 @@
 import os
+import time
+import timeit
 import traceback
 from typing import Any, Dict, List, Tuple
 
@@ -407,6 +409,8 @@ class ImpalaTrainer:
             'baseline_loss',
             'entropy_loss',
         ]
+        checkpoint_path = os.path.join(self.args.output_dir, self.args.project,
+                                       'model.tar')
 
         actor_processes = []
         ctx = mp.get_context('fork')
@@ -451,11 +455,27 @@ class ImpalaTrainer:
             learner.start()
             learner_process.append(learner)
 
+        timer = timeit.default_timer
         try:
-            for learner in learner_process:
-                learner.join()
+            last_checkpoint_time = timer()
+            while self.global_step < self.args.total_steps:
+                start_step = self.global_step
+                start_time = timer()
+                time.sleep(5)
+
+                if timer(
+                ) - last_checkpoint_time > 10 * 60:  # Save every 10 min.
+                    self.save_checkpoint(checkpoint_path)
+                    last_checkpoint_time = timer()
+                sps = (self.global_step - start_step) / (timer() - start_time)
+                logger.info('Steps %i @ %.1f SPS.', self.global_step, sps)
+
         except KeyboardInterrupt:
             return  # Try joining actors then quit.
+        else:
+            for learner in learner_process:
+                learner.join(timeout=1)
+            logger.info('Learning finished after %d steps.', self.global_step)
         finally:
             for _ in range(self.args.num_actors):
                 free_queue.put(None)
@@ -477,7 +497,7 @@ class ImpalaTrainer:
         """Save the current state of the model and optimizer.
 
         Args:
-            checkpointpath (str): Path to save the checkpoint.
+            checkpoint_path (str): Path to save the checkpoint.
         """
         if self.args.disable_checkpoint:
             return
