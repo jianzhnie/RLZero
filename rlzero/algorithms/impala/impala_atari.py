@@ -1,4 +1,3 @@
-import logging
 import os
 import threading
 import traceback
@@ -84,10 +83,10 @@ class ImpalaTrainer:
     def setup_device(self) -> None:
         """Set up the device (CPU or GPU) based on the arguments."""
         if self.args.use_cuda and torch.cuda.is_available():
-            logging.info('Using CUDA.')
+            logger.info('Using CUDA.')
             self.args.device = torch.device('cuda')
         else:
-            logging.info('Not using CUDA.')
+            logger.info('Not using CUDA.')
             self.args.device = torch.device('cpu')
 
     def setup_optimizer(self) -> torch.optim.Optimizer:
@@ -170,7 +169,7 @@ class ImpalaTrainer:
             rnn_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
         """
         try:
-            logging.info('Actor %i started.', actor_index)
+            logger.info('Actor %i started.', actor_index)
             timings = Timings()  # Keep track of how fast things are.
             gym_env = create_env(self.args.env_id)
             env: TorchEnvWrapper = TorchEnvWrapper(gym_env)
@@ -209,12 +208,12 @@ class ImpalaTrainer:
                 full_queue.put(index)
 
             if actor_index == 0:
-                logging.info('Actor %i: %s', actor_index, timings.summary())
+                logger.info('Actor %i: %s', actor_index, timings.summary())
 
         except KeyboardInterrupt:
             pass  # Return silently.
         except Exception as e:
-            logging.error('Exception in worker process %i', actor_index)
+            logger.error('Exception in worker process %i', actor_index)
             traceback.print_exc()
             raise e
 
@@ -248,7 +247,7 @@ class ImpalaTrainer:
             key: torch.stack([buffers[key][m] for m in indices], dim=1)
             for key in buffers
         }
-        initial_agent_state = (torch.cat(
+        initial_rnn_state = (torch.cat(
             ts, dim=1) for ts in zip(*[rnn_state_buffers[m] for m in indices]))
         timings.time('batch')
         for m in indices:
@@ -259,26 +258,26 @@ class ImpalaTrainer:
             k: t.to(device=self.args.device, non_blocking=True)
             for k, t in batch.items()
         }
-        initial_agent_state = tuple(
+        initial_rnn_state = tuple(
             t.to(device=self.args.device, non_blocking=True)
-            for t in initial_agent_state)
+            for t in initial_rnn_state)
         timings.time('device')
 
-        return batch, initial_agent_state
+        return batch, initial_rnn_state
 
     def learn(
             self,
             actor_model: nn.Module,
             learner_model: nn.Module,
             batch: Dict[str, torch.Tensor],
-            initial_agent_state: Tuple[torch.Tensor, ...],
+            initial_rnn_state: Tuple[torch.Tensor, ...],
             lock: threading.Lock = threading.Lock(),
     ) -> Dict[str, Any]:
         """Perform a learning step using the batch of rollout data.
 
         Args:
             batch (Dict[str, torch.Tensor]): Batch of rollout data.
-            initial_agent_state (Tuple[torch.Tensor, ...]): Initial RNN states.
+            initial_rnn_state (Tuple[torch.Tensor, ...]): Initial RNN states.
             lock (threading.Lock): Lock for thread safety.
 
         Returns:
@@ -286,7 +285,7 @@ class ImpalaTrainer:
         """
         with lock:
             learner_outputs, unused_state = learner_model(
-                batch, initial_agent_state)
+                batch, initial_rnn_state)
 
             # Take final value function slice for bootstrapping.
             bootstrap_value = learner_outputs['baseline'][-1]
@@ -388,7 +387,7 @@ class ImpalaTrainer:
                 self.global_step += self.args.rollout_length * self.args.batch_size
 
         if threading_id == 0:
-            logging.info('Batch and learn: %s', timings.summary())
+            logger.info('Batch and learn: %s', timings.summary())
 
     def train(self) -> None:
         """Main training loop for the IMPALA algorithm."""
@@ -461,7 +460,7 @@ class ImpalaTrainer:
         """
         if self.args.disable_checkpoint:
             return
-        logging.info('Saving checkpoint to %s', checkpoint_path)
+        logger.info('Saving checkpoint to %s', checkpoint_path)
         torch.save(
             {
                 'model_state_dict': self.actor_model.state_dict(),
