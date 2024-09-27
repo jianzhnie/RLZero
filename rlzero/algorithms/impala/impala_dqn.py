@@ -14,6 +14,7 @@ import torch.optim as optim
 from gymnasium.wrappers import RecordEpisodeStatistics
 
 from rlzero.utils.logger_utils import get_logger
+from rlzero.utils.lr_scheduler import LinearDecayScheduler
 
 logger = get_logger('impala')
 
@@ -147,13 +148,14 @@ class ImpalaDQN:
         num_actors: int = 4,
         max_timesteps: int = 50000,
         buffer_size: int = 10000,
-        eps_greedy: float = 0.1,
+        eps_greedy_start: float = 1.0,
+        eps_greedy_end: float = 0.01,
         eval_interval: int = 1000,
         train_log_interval: int = 1000,
         target_update_frequency: int = 2000,
         double_dqn: bool = True,
         gamma: float = 0.99,
-        batch_size: int = 32,
+        batch_size: int = 64,
         learning_rate: float = 0.001,
         device: str = 'cpu',
     ) -> None:
@@ -162,7 +164,6 @@ class ImpalaDQN:
         self.num_actors = num_actors
         self.max_timesteps = max_timesteps
         self.buffer_size = buffer_size
-        self.eps_greedy = eps_greedy
         self.eval_interval = eval_interval
         self.train_log_interval = train_log_interval
         self.target_update_frequency = target_update_frequency
@@ -177,10 +178,14 @@ class ImpalaDQN:
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.optimizer = optim.Adam(self.q_network.parameters(),
                                     lr=learning_rate)
-
-        self.data_queue = mp.Queue(maxsize=100)
-        self.replay_buffer = ReplayBuffer(buffer_size)
-        self.global_step = 0
+        self.eps_greedy_start = eps_greedy_start
+        self.eps_greedy_end = eps_greedy_end
+        self.eps_greedy_scheduler = LinearDecayScheduler(
+            eps_greedy_start,
+            eps_greedy_end,
+            max_steps=max_timesteps * 0.9,
+        )
+        self.eps_greedy = eps_greedy_start
 
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         """Get action from the actor network.
@@ -196,6 +201,9 @@ class ImpalaDQN:
             action = random.randint(0, self.action_dim - 1)
         else:
             action = self.predict(obs)
+
+        self.eps_greedy = max(self.eps_greedy_scheduler.step(),
+                              self.eps_greedy_end)
 
         return action
 
@@ -241,6 +249,7 @@ class ImpalaDQN:
                     next_state, reward, terminal, truncated, info = env.step(
                         action)
                     done = terminal or truncated
+
                     if info and 'episode' in info:
                         info_item = {
                             k: v.item()
@@ -249,12 +258,14 @@ class ImpalaDQN:
                         episode_reward = info_item['r']
                         episode_step = info_item['l']
 
+                    with self.global_step.get_lock():
+                        self.global_step.value += 1
                     buffer.append((state, action, reward, next_state, done))
                     state = next_state
                 if buffer:
                     data_queue.put(buffer)
 
-                global_step = ceil_to_nearest_hundred(self.global_step)
+                global_step = ceil_to_nearest_hundred(self.global_step.value)
                 if actor_id == 0 and global_step % self.train_log_interval == 0:
                     logger.info(
                         'Actor {}: , episode step: {}, episode reward: {}'.
@@ -267,14 +278,15 @@ class ImpalaDQN:
     def learn(self, batch: Dict[str, np.array]) -> None:
         states = torch.tensor(batch['states'],
                               dtype=torch.float32).to(self.device)
-        actions = torch.tensor(batch['actions'],
-                               dtype=torch.long).unsqueeze(1).to(self.device)
-        rewards = torch.tensor(
-            batch['rewards'], dtype=torch.float32).unsqueeze(1).to(self.device)
+        actions = (torch.tensor(batch['actions'],
+                                dtype=torch.long).unsqueeze(1).to(self.device))
+        rewards = (torch.tensor(batch['rewards'],
+                                dtype=torch.float32).unsqueeze(1).to(
+                                    self.device))
         next_states = torch.tensor(batch['next_states'],
                                    dtype=torch.float32).to(self.device)
-        dones = torch.tensor(batch['dones'],
-                             dtype=torch.float32).unsqueeze(1).to(self.device)
+        dones = (torch.tensor(
+            batch['dones'], dtype=torch.float32).unsqueeze(1).to(self.device))
 
         # Compute current Q values
         current_q_values = self.q_network(states).gather(1, actions)
@@ -290,7 +302,7 @@ class ImpalaDQN:
                 next_q_values = self.target_network(next_states).max(
                     dim=1, keepdim=True)[0]
 
-        target_q_values = (rewards + (1 - dones) * self.gamma * next_q_values)
+        target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
         # Compute loss
         loss = F.mse_loss(current_q_values, target_q_values, reduction='mean')
@@ -314,21 +326,18 @@ class ImpalaDQN:
         """
 
         try:
-            while self.global_step < self.max_timesteps and not stop_event.is_set(
-            ):
-
+            while (self.global_step.value < self.max_timesteps
+                   and not stop_event.is_set()):
                 try:
                     # Non-blocking with timeout
-                    data = data_queue.get(timeout=0.01)
+                    data = data_queue.get()
                 except data_queue.Empty:
                     continue  # 如果队列为空，继续循环
 
-                actor_step = len(data)
-                self.global_step += actor_step
                 for experience in data:
                     self.replay_buffer.add(experience)
 
-                global_step = ceil_to_nearest_hundred(self.global_step)
+                global_step = ceil_to_nearest_hundred(self.global_step.value)
 
                 if len(self.replay_buffer) >= self.batch_size:
                     batch = self.replay_buffer.sample(self.batch_size)
@@ -363,7 +372,7 @@ class ImpalaDQN:
         Returns:
             dict[str, float]: Evaluation results.
         """
-        test_env = make_env(env_id='CartPole-v1')
+        test_env = make_env(env_id='CartPole-v0')
         eval_rewards = []
         eval_steps = []
         for _ in range(n_eval_episodes):
@@ -398,13 +407,19 @@ class ImpalaDQN:
 
     def run(self) -> None:
         """Run the IMPALA DQN algorithm."""
+
+        self.replay_buffer = ReplayBuffer(self.buffer_size)
+        self.global_step = mp.Value('i', 0)
+        self.data_queue = mp.Queue(maxsize=500)
+
         stop_event = mp.Event()
         actor_processes = []
-        for i in range(self.num_actors):
-            train_env = make_env(env_id='CartPole-v1')
-            actor = mp.Process(target=self.actor_process,
-                               args=(i, train_env, self.data_queue,
-                                     stop_event))
+        for actor_id in range(self.num_actors):
+            train_env = make_env(env_id='CartPole-v0')
+            actor = mp.Process(
+                target=self.actor_process,
+                args=(actor_id, train_env, self.data_queue, stop_event),
+            )
             actor.start()
             actor_processes.append(actor)
 
