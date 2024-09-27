@@ -1,9 +1,12 @@
 import math
 import multiprocessing as mp
+import os
 import random
+import sys
 import traceback
 from collections import deque
-from typing import Dict, List, Tuple
+from multiprocessing.managers import BaseManager
+from typing import Dict, Tuple
 
 import gymnasium as gym
 import numpy as np
@@ -12,8 +15,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from gymnasium.wrappers import RecordEpisodeStatistics
-from multiprocessing.managers import BaseManager
 
+sys.path.append(os.getcwd())
 from rlzero.utils.logger_utils import get_logger
 
 logger = get_logger('impala')
@@ -181,7 +184,8 @@ class ImpalaDQN:
         self.q_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network = QNetwork(state_dim, action_dim).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.q_network.parameters(),
+                                    lr=learning_rate)
 
         self.data_queue = mp.Queue(maxsize=100)
         self.global_step = mp.Value('i', 0)
@@ -222,8 +226,13 @@ class ImpalaDQN:
         action = torch.argmax(q_values, dim=1).item()
         return action
 
-    def actor_process(self, actor_id: int, env: gym.Env, 
-                      replay_buffer: ReplayBuffer, stop_event: mp.Event) -> None:
+    def actor_process(
+        self,
+        actor_id: int,
+        env: gym.Env,
+        replay_buffer: ReplayBuffer,
+        stop_event: mp.Event,
+    ) -> None:
         """Actor process that interacts with the environment and collects
         experiences.
 
@@ -253,10 +262,10 @@ class ImpalaDQN:
                         episode_reward = info_item['r']
                         episode_step = info_item['l']
 
-                    replay_buffer.add((state, action, reward, next_state, done))
+                    replay_buffer.add(
+                        (state, action, reward, next_state, done))
                     state = next_state
-                global_step = ceil_to_nearest_hundred(
-                            self.global_step.value)
+                global_step = ceil_to_nearest_hundred(self.global_step.value)
                 if actor_id == 0 and global_step % self.train_log_interval == 0:
                     logger.info(
                         'Actor {}: , episode step: {}, episode reward: {}'.
@@ -306,7 +315,8 @@ class ImpalaDQN:
         }
         return learn_result
 
-    def learner_process(self, replay_buffer: ReplayBuffer, stop_event: mp.Event):
+    def learner_process(self, replay_buffer: ReplayBuffer,
+                        stop_event: mp.Event):
         """Learner process that trains the Q-network using experiences from the
         actors.
 
@@ -319,12 +329,10 @@ class ImpalaDQN:
         try:
             while self.global_step.value < self.max_timesteps and not stop_event.is_set(
             ):
-                global_step = ceil_to_nearest_hundred(
-                            self.global_step.value)
+                global_step = ceil_to_nearest_hundred(self.global_step.value)
 
                 with self.global_step.get_lock():
                     self.global_step.value
-
 
                 if len(replay_buffer) >= self.batch_size:
                     batch = replay_buffer.sample(self.batch_size)
@@ -333,7 +341,7 @@ class ImpalaDQN:
                     if global_step % self.target_update_frequency == 0:
                         self.target_network.load_state_dict(
                             self.q_network.state_dict())
-                    
+
                     if global_step % self.train_log_interval == 0:
                         logger.info(
                             f'Step {global_step}: Train results: {learn_result}'
@@ -402,9 +410,10 @@ class ImpalaDQN:
 
             for i in range(self.num_actors):
                 train_env = make_env(env_id='CartPole-v1')
-                actor = mp.Process(target=self.actor_process,
-                                   args=(i, train_env,
-                                         replay_buffer, stop_event))
+                actor = mp.Process(
+                    target=self.actor_process,
+                    args=(i, train_env, replay_buffer, stop_event),
+                )
                 actor.start()
                 actor_processes.append(actor)
 
@@ -429,7 +438,8 @@ class ImpalaDQN:
                 learner.join(timeout=1)
                 if learner.is_alive():
                     logger.warning(
-                        'Learner process did not terminate, force terminating...')
+                        'Learner process did not terminate, force terminating...'
+                    )
                     learner.terminate()
                 logger.info('All processes have been stopped.')
 
