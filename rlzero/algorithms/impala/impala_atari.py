@@ -1,5 +1,4 @@
 import os
-import threading
 import traceback
 from typing import Any, Dict, List, Tuple
 
@@ -110,13 +109,13 @@ class ImpalaTrainer:
         Returns:
             List[Tuple[torch.Tensor, ...]]: List of initial RNN states.
         """
-        agent_rann_state_buffers = []
+        agent_rnn_state_buffers = []
         for _ in range(self.args.num_buffers):
             state = self.actor_model.initial_hidden_state(batch_size=1)
             for t in state:
                 t.share_memory_()
-            agent_rann_state_buffers.append(state)
-        return agent_rann_state_buffers
+            agent_rnn_state_buffers.append(state)
+        return agent_rnn_state_buffers
 
     def create_buffers(self, obs_shape: Tuple[int, ...],
                        num_actions: int) -> Dict[str, List[torch.Tensor]]:
@@ -225,7 +224,7 @@ class ImpalaTrainer:
         buffers: Dict[str, List[torch.Tensor]],
         rnn_state_buffers: List[Tuple[torch.Tensor, ...]],
         timings: Timings,
-        lock: threading.Lock = threading.Lock(),
+        lock: mp.Lock = mp.Lock(),
     ) -> Tuple[Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]:
         """Get a batch of rollout data for training.
 
@@ -235,7 +234,7 @@ class ImpalaTrainer:
             buffers (Dict[str, List[torch.Tensor]]): Buffers for storing rollout data.
             rnn_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
             timings (Timings): Timings object to track performance.
-            lock (threading.Lock): Lock for thread safety.
+            lock (mp.Lock): Lock for thread safety.
 
         Returns:
             Tuple[Dict[str, torch.Tensor], Tuple[torch.Tensor, ...]]: Batch of rollout data and initial RNN states.
@@ -272,14 +271,14 @@ class ImpalaTrainer:
             learner_model: nn.Module,
             batch: Dict[str, torch.Tensor],
             initial_rnn_state: Tuple[torch.Tensor, ...],
-            lock: threading.Lock = threading.Lock(),
+            lock: mp.Lock = mp.Lock(),
     ) -> Dict[str, Any]:
         """Perform a learning step using the batch of rollout data.
 
         Args:
             batch (Dict[str, torch.Tensor]): Batch of rollout data.
             initial_rnn_state (Tuple[torch.Tensor, ...]): Initial RNN states.
-            lock (threading.Lock): Lock for thread safety.
+            lock (mp.Lock): Lock for thread safety.
 
         Returns:
             Dict[str, Any]: Statistics from the learning step.
@@ -356,7 +355,7 @@ class ImpalaTrainer:
             full_queue: mp.SimpleQueue,
             buffers: Dict[str, List[torch.Tensor]],
             rnn_state_buffers: List[Tuple[torch.Tensor, ...]],
-            lock: threading.Lock = threading.Lock(),
+            lock: mp.Lock = mp.Lock(),
     ) -> None:
         """Thread target for the learning process.
 
@@ -366,29 +365,38 @@ class ImpalaTrainer:
             full_queue (mp.SimpleQueue): Queue for full buffer indices.
             buffers (Dict[str, List[torch.Tensor]]): Buffers for storing rollout data.
             rnn_state_buffers (List[Tuple[torch.Tensor, ...]]): Initial RNN states.
-            lock (threading.Lock): Lock for thread safety.
+            lock (mp.Lock): Lock for thread safety.
         """
-        timings = Timings()
-        while self.global_step < self.args.total_steps:
-            timings.reset()
-            batch, agent_state = self.get_batch(
-                free_queue,
-                full_queue,
-                buffers,
-                rnn_state_buffers,
-                timings,
-            )
-            stats = self.learn(actor_model, learner_model, batch, agent_state,
-                               lock)
-            timings.time('learn')
-            with lock:
-                to_log = dict(step=self.global_step)
-                to_log.update({k: stats[k] for k in self.stat_keys})
-                logger.info(to_log)
-                self.global_step += self.args.rollout_length * self.args.batch_size
 
-        if threading_id == 0:
-            logger.info('Batch and learn: %s', timings.summary())
+        try:
+            timings = Timings()
+            while self.global_step < self.args.total_steps:
+                timings.reset()
+                batch, agent_state = self.get_batch(
+                    free_queue,
+                    full_queue,
+                    buffers,
+                    rnn_state_buffers,
+                    timings,
+                )
+                stats = self.learn(actor_model, learner_model, batch,
+                                   agent_state, lock)
+                timings.time('learn')
+                with lock:
+                    to_log = dict(step=self.global_step)
+                    to_log.update({k: stats[k] for k in self.stat_keys})
+                    logger.info(to_log)
+                    self.global_step += self.args.rollout_length * self.args.batch_size
+
+            if threading_id == 0:
+                logger.info('Batch and learn: %s', timings.summary())
+        except KeyboardInterrupt:
+            return
+        except Exception as e:
+            logger.error('Exception in learn process %i: %s', threading_id,
+                         str(e))
+            traceback.print_exc()
+            raise e
 
     def train(self) -> None:
         """Main training loop for the IMPALA algorithm."""
@@ -401,13 +409,14 @@ class ImpalaTrainer:
         ]
 
         actor_processes = []
-        ctx = mp.get_context('spawn')
+        ctx = mp.get_context('fork')
         free_queue = ctx.SimpleQueue()
         full_queue = ctx.SimpleQueue()
 
         for actor_index in range(self.args.num_actors):
-            actor = ctx.Process(
+            actor = mp.Process(
                 target=self.get_action,
+                name=f'actor-rpocess-%={actor_index}',
                 args=(
                     actor_index,
                     free_queue,
@@ -423,28 +432,28 @@ class ImpalaTrainer:
         for m in range(self.args.num_buffers):
             free_queue.put(m)
 
-        threads = []
-        for thread_id in range(self.args.num_learners):
-            thread = threading.Thread(
+        learner_process = []
+        for learner_id in range(self.args.num_learners):
+            learner = mp.Process(
                 target=self.learn_process,
-                name=f'learn-thread-{thread_id}',
+                name=f'learn-process-{learner_id}',
                 args=(
-                    thread_id,
+                    learner_id,
                     self.actor_model,
                     self.learner_model,
                     free_queue,
                     full_queue,
                     self.buffers,
                     self.rnn_state_buffers,
-                    threading.Lock(),
+                    mp.Lock(),
                 ),
             )
-            thread.start()
-            threads.append(thread)
+            learner.start()
+            learner_process.append(learner)
 
         try:
-            for thread in threads:
-                thread.join()
+            for learner in learner_process:
+                learner.join()
         except KeyboardInterrupt:
             return  # Try joining actors then quit.
         finally:
@@ -452,6 +461,17 @@ class ImpalaTrainer:
                 free_queue.put(None)
             for actor in actor_processes:
                 actor.join(timeout=1)
+            if actor.is_active():
+                actor.terminate()
+
+            for learner in learner_process:
+                learner.join(timeout=1)
+                if learner.is_alive():
+                    logger.warning(
+                        'Learner process did not terminate, force terminating...'
+                    )
+                    learner.terminate()
+                logger.info('All processes have been stopped.')
 
     def save_checkpoint(self, checkpoint_path: str) -> None:
         """Save the current state of the model and optimizer.

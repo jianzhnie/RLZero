@@ -25,9 +25,9 @@ class RLArguments:
 
     # MultiProcess settings
     num_actors: int = field(
-        default=1,
+        default=4,
         metadata={'help': 'The number of actors for each simulation device'})
-    num_learners: int = field(default=4,
+    num_learners: int = field(default=1,
                               metadata={'help': 'Number learner threads'})
 
     # Device settings
