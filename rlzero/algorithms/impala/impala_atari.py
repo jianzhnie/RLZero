@@ -9,15 +9,13 @@ import torch
 from torch import multiprocessing as mp
 from torch import nn
 
-from rlzero.algorithms.impala.atari_wrapper import \
-    wrap_deepmind as wrap_deepmind2
+from rlzero.algorithms.impala.atari_wrapper import wrap_deepmind
 from rlzero.algorithms.impala.torch_envwrapper import TorchEnvWrapper
 from rlzero.algorithms.impala.utils import (compute_baseline_loss,
                                             compute_entropy_loss,
                                             compute_policy_gradient_loss)
 from rlzero.algorithms.impala.vtrace import from_logits
 from rlzero.algorithms.rl_args import RLArguments
-from rlzero.envs.atari_wrappers import make_atari, wrap_deepmind, wrap_pytorch
 from rlzero.models.atari_model import AtariNet
 from rlzero.utils.logger_utils import get_logger
 from rlzero.utils.profile import Timings
@@ -34,23 +32,8 @@ def create_env(env_id: str) -> gym.Env:
     Returns:
         gym.Env: The wrapped Atari environment.
     """
-    env = make_atari(env_id)
-    env = wrap_deepmind(env, frame_stack=True, clip_rewards=False)
-    env = wrap_pytorch(env)
-    return env
-
-
-def create_env2(env_id: str) -> gym.Env:
-    """Create and wrap an Atari environment.
-
-    Args:
-        env_id (str): The ID of the Atari environment.
-
-    Returns:
-        gym.Env: The wrapped Atari environment.
-    """
     env = gym.make(env_id)
-    env = wrap_deepmind2(env, frame_stack=4, clip_rewards=False)
+    env = wrap_deepmind(env, frame_stack=4, clip_rewards=False)
     return env
 
 
@@ -66,7 +49,7 @@ class ImpalaTrainer:
         """
         self.args: RLArguments = args
         self.setup_device()
-        self.env: gym.Env = create_env2(args.env_id)
+        self.env: gym.Env = create_env(args.env_id)
         self.actor_model: AtariNet = AtariNet(
             self.env.observation_space.shape,
             self.env.action_space.n.item(),
@@ -189,7 +172,7 @@ class ImpalaTrainer:
         try:
             logging.info('Actor %i started.', actor_index)
             timings = Timings()  # Keep track of how fast things are.
-            gym_env = create_env2(self.args.env_id)
+            gym_env = create_env(self.args.env_id)
             env: TorchEnvWrapper = TorchEnvWrapper(gym_env)
             env_output = env.reset()
             agent_state = self.actor_model.initial_hidden_state(batch_size=1)
