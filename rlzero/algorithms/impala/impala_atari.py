@@ -213,7 +213,8 @@ class ImpalaTrainer:
         except KeyboardInterrupt:
             pass  # Return silently.
         except Exception as e:
-            logger.error('Exception in worker process %i', actor_index)
+            logger.error('Exception in worker process %i: %s', actor_index,
+                         str(e))
             traceback.print_exc()
             raise e
 
@@ -461,14 +462,17 @@ class ImpalaTrainer:
         if self.args.disable_checkpoint:
             return
         logger.info('Saving checkpoint to %s', checkpoint_path)
-        torch.save(
-            {
-                'model_state_dict': self.actor_model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'hparam': vars(self.args),
-            },
-            checkpoint_path,
-        )
+        try:
+            torch.save(
+                {
+                    'model_state_dict': self.actor_model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'hparam': vars(self.args),
+                },
+                checkpoint_path,
+            )
+        except Exception as e:
+            logger.error('Failed to save checkpoint: %s', str(e))  # 记录保存失败的错误
 
 
 if __name__ == '__main__':
