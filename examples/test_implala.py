@@ -1,6 +1,8 @@
 import os
 import sys
 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 sys.path.append(os.getcwd())
 from rlzero.algorithms.impala.impala_dqn import ImpalaDQN
 
