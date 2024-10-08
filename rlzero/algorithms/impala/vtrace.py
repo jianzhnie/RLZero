@@ -53,21 +53,13 @@ def from_logits(
 ) -> VTraceFromLogitsReturns:
     """V-trace for softmax policies."""
 
-    rank = len(behavior_policy_logits.shape)  # Usually 2.
-    assert len(target_policy_logits.shape) == rank
-    assert len(values.shape) == rank
-    assert len(bootstrap_value.shape) == (rank - 1)
-    assert len(discounts.shape) == rank
-    assert len(rewards.shape) == rank
-
     target_action_log_probs = action_log_probs(target_policy_logits, actions)
     behavior_action_log_probs = action_log_probs(behavior_policy_logits,
                                                  actions)
     log_rhos = target_action_log_probs - behavior_action_log_probs
 
     vtrace_returns = from_importance_weights(
-        behaviour_actions_log_probs=behavior_action_log_probs,
-        target_actions_log_probs=target_action_log_probs,
+        log_rhos=log_rhos,
         discounts=discounts,
         rewards=rewards,
         values=values,
@@ -85,8 +77,7 @@ def from_logits(
 
 @torch.no_grad()
 def from_importance_weights(
-    behaviour_actions_log_probs: torch.Tensor,
-    target_actions_log_probs: torch.Tensor,
+    log_rhos: torch.Tensor,
     discounts: torch.Tensor,
     rewards: torch.Tensor,
     values: torch.Tensor,
@@ -140,8 +131,6 @@ def from_importance_weights(
 
     # log importance sampling weights.
     # V-trace performs operations on rhos in log-space for numerical stability.
-    log_rhos = target_actions_log_probs - behaviour_actions_log_probs
-
     with torch.no_grad():
         rhos = torch.exp(log_rhos)
         if clip_rho_threshold is not None:
