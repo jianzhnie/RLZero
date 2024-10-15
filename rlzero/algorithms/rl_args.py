@@ -91,8 +91,8 @@ class RLArguments:
     disable_checkpoint: bool = field(
         default=False, metadata={'help': 'Disable saving checkpoint'})
     output_dir: str = field(
-        default="./work_dir",
-        metadata={"help": "Root dir where experiment data will be saved"},
+        default='./work_dir',
+        metadata={'help': 'Root dir where experiment data will be saved'},
     )
     save_interval: int = field(
         default=30,
